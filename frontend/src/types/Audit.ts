@@ -4,3 +4,7 @@ export interface PullRequest {
   originalSnippet: string;
   poisonedSnippet: string;
 }
+
+export interface TelemetryStats {
+  statusCounts: Record<string, number>;
+}

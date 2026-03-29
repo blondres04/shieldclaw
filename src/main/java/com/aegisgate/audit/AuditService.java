@@ -1,5 +1,7 @@
 package com.aegisgate.audit;
 
+import java.util.Optional;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,10 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuditService {
 
     private final PullRequestRepository pullRequestRepository;
+
+    public Optional<PullRequestEntity> getNextPendingAudit() {
+        return pullRequestRepository.findFirstByStatus(AuditStatus.PENDING_AUDIT);
+    }
 
     @Transactional
     public PullRequestEntity evaluateDecision(String prId, AuditDecisionRequest request) {

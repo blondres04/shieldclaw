@@ -1,0 +1,5 @@
+package com.aegisgate.telemetry;
+
+import java.util.Map;
+
+public record TelemetryStatsDTO(Map<String, Long> statusCounts) {}

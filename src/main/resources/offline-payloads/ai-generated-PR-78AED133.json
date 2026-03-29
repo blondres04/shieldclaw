@@ -1,0 +1,8 @@
+{
+  "prId": "PR-78AED133",
+  "threatCategory": "OWASP_A10 - Server-Side Request Forgery (SSRF)",
+  "isPoisoned": true,
+  "originalSnippet": "import org.springframework.web.client.RestTemplate;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ExternalService {\n\n    public String getDataFromExternalService(String url) {\n        RestTemplate restTemplate = new RestTemplate();\n        try {\n            return restTemplate.getForObject(url, String.class);\n        } catch (Exception e) {\n            return \"Error fetching data\";\n        }\n    }\n}",
+  "poisonedSnippet": "import org.springframework.web.client.RestTemplate;\nimport org.springframework.stereotype.Service;\nimport java.net.URI;\nimport java.net.URISyntaxException;\n\n@Service\npublic class ExternalService {\n\n    public String getDataFromExternalService(String url) {\n        RestTemplate restTemplate = new RestTemplate();\n        try {\n            URI uri = new URI(url);\n            return restTemplate.getForObject(uri, String.class);\n        } catch (URISyntaxException | Exception e) {\n            return \"Error fetching data\";\n        }\n    }\n}",
+  "status": "PENDING_REVIEW"
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import type { PullRequest } from "../types/Audit";
+import TelemetryChart from "./TelemetryChart";
 
 const OWASP_CATEGORIES = [
   "OWASP_A01 - Broken Access Control",
@@ -150,6 +151,8 @@ export default function AuditDashboard() {
           </button>
         </div>
       </section>
+
+      <TelemetryChart />
     </div>
   );
 }
