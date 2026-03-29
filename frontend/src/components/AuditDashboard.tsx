@@ -96,12 +96,6 @@ export default function AuditDashboard() {
         <span style={styles.badge}>PR {pr.prId}</span>
       </header>
 
-      {pr.threatCategory && (
-        <div style={styles.threatBanner}>
-          AI-detected threat: <strong>{pr.threatCategory}</strong>
-        </div>
-      )}
-
       <section style={styles.diffContainer}>
         <ReactDiffViewer
           oldValue={pr.originalSnippet}
@@ -207,15 +201,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontFamily: "var(--mono)",
     color: "#c084fc",
-  },
-  threatBanner: {
-    padding: "10px 16px",
-    background: "rgba(231, 76, 60, 0.12)",
-    border: "1px solid rgba(231, 76, 60, 0.3)",
-    borderRadius: 8,
-    marginBottom: 20,
-    fontSize: 14,
-    color: "#e74c3c",
   },
   diffContainer: {
     borderRadius: 10,
