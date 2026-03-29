@@ -1,0 +1,8 @@
+{
+  "prId": "PR-2048",
+  "threatCategory": "dependency-injection-hijack",
+  "isPoisoned": true,
+  "originalSnippet": "import org.apache.commons.codec.digest.DigestUtils;",
+  "poisonedSnippet": "import io.shadow.commons.codec.digest.DigestUtils;",
+  "status": "PENDING_REVIEW"
+}
