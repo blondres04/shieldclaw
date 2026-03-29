@@ -6,5 +6,6 @@ public record PRPayloadDTO(
         boolean isPoisoned,
         String originalSnippet,
         String poisonedSnippet,
+        String aiJustificationGroundTruth,
         String status
 ) {}
