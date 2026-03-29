@@ -1,0 +1,19 @@
+# Maven compiled output
+/target/
+
+# IDE specific folders
+.idea/
+.vscode/
+.cursor/
+*.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Local database volume folders (Docker mapped)
+/data/
+/db-data/
+/postgres-data/
+/mysql-data/
+/mongo-data/
