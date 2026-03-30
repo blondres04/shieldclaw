@@ -1,0 +1,6 @@
+.git
+.cursor
+.vscode
+target/
+node_modules/
+.env

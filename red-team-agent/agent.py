@@ -5,6 +5,7 @@ adversarial Java Spring Boot snippets for the DevSecOps audit pipeline.
 """
 
 import json
+import os
 import re
 import sys
 import uuid
@@ -12,6 +13,7 @@ from pathlib import Path
 from random import choice
 
 import ollama
+from ollama import Client
 from pydantic import BaseModel, ValidationError
 
 # ---------------------------------------------------------------------------
@@ -31,7 +33,9 @@ OWASP_CATEGORIES = [
     "OWASP_A10 - Server-Side Request Forgery (SSRF)",
 ]
 
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "src" / "main" / "resources" / "offline-payloads"
+_default_output = Path(__file__).resolve().parent.parent / "src" / "main" / "resources" / "offline-payloads"
+OUTPUT_DIR = Path(os.environ.get("PAYLOAD_DIR", str(_default_output)))
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL = "gemma3:12b"
 
 
@@ -88,9 +92,11 @@ def main() -> None:
 
     print(f"[*] Targeting OWASP category : {category}")
     print(f"[*] Generated PR ID          : {pr_id}")
+    print(f"[*] Ollama host              : {OLLAMA_HOST}")
     print(f"[*] Calling Ollama ({MODEL})...")
 
-    response = ollama.chat(
+    client = Client(host=OLLAMA_HOST)
+    response = client.chat(
         model=MODEL,
         messages=[
             {"role": "system", "content": system_prompt},

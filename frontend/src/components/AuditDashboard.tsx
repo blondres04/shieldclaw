@@ -15,7 +15,7 @@ export default function AuditDashboard() {
   const [pr, setPr] = useState<PullRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState(OWASP_CATEGORIES[0]);
+  const [selectedCategory, setSelectedCategory] = useState<string>(OWASP_CATEGORIES[0]);
   const [submitting, setSubmitting] = useState(false);
 
   const fetchPending = async () => {

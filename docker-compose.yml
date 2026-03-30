@@ -28,5 +28,44 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aegis_db
+      SPRING_DATASOURCE_USERNAME: aegis
+      SPRING_DATASOURCE_PASSWORD: aegis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PAYLOAD_DIRECTORY: /app/payloads
+    volumes:
+      - shared-payloads:/app/payloads
+    depends_on:
+      - postgres
+      - kafka
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aegis-frontend
+    ports:
+      - "5173:80"
+
+  red-team-agent:
+    build:
+      context: ./red-team-agent
+      dockerfile: Dockerfile
+    container_name: aegis-red-team
+    environment:
+      PAYLOAD_DIR: /app/payloads
+      OLLAMA_HOST: http://host.docker.internal:11434
+    volumes:
+      - shared-payloads:/app/payloads
+
 volumes:
   pgdata:
+  shared-payloads:

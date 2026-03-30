@@ -4,12 +4,13 @@ import com.aegisgate.audit.PRPayloadDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.io.InputStream;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 @Service
 @Slf4j
@@ -19,29 +20,33 @@ public class OfflinePayloadIngester {
     private final ObjectMapper objectMapper;
     private final KafkaProducerService kafkaProducerService;
 
-    private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+    @Value("${payload.directory:src/main/resources/offline-payloads}")
+    private String payloadDirectory;
 
     @Scheduled(fixedRate = 15000)
     public void scanAndIngest() {
-        try {
-            Resource[] resources = resolver.getResources("classpath:offline-payloads/*.json");
+        Path dir = Path.of(payloadDirectory);
 
-            if (resources.length == 0) {
-                log.debug("No offline payloads found in classpath:offline-payloads/");
-                return;
-            }
+        if (!Files.isDirectory(dir)) {
+            log.debug("Payload directory does not exist: {}", dir);
+            return;
+        }
 
-            for (Resource resource : resources) {
-                try (InputStream is = resource.getInputStream()) {
-                    PRPayloadDTO payload = objectMapper.readValue(is, PRPayloadDTO.class);
-                    kafkaProducerService.publishPayload(payload);
-                    log.info("Ingested offline payload [{}] from {}", payload.prId(), resource.getFilename());
-                } catch (Exception e) {
-                    log.error("Failed to deserialize payload from {}: {}", resource.getFilename(), e.getMessage());
-                }
+        File[] files = dir.toFile().listFiles((d, name) -> name.endsWith(".json"));
+
+        if (files == null || files.length == 0) {
+            log.debug("No offline payloads found in {}", dir);
+            return;
+        }
+
+        for (File file : files) {
+            try {
+                PRPayloadDTO payload = objectMapper.readValue(file, PRPayloadDTO.class);
+                kafkaProducerService.publishPayload(payload);
+                log.info("Ingested offline payload [{}] from {}", payload.prId(), file.getName());
+            } catch (Exception e) {
+                log.error("Failed to deserialize payload from {}: {}", file.getName(), e.getMessage());
             }
-        } catch (Exception e) {
-            log.error("Error scanning offline-payloads directory: {}", e.getMessage());
         }
     }
 }

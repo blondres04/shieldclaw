@@ -1,6 +1,9 @@
 server:
   port: 8080
 
+payload:
+  directory: ${PAYLOAD_DIRECTORY:src/main/resources/offline-payloads}
+
 spring:
   application:
     name: aegis-gate

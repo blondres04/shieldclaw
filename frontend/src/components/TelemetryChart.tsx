@@ -86,7 +86,7 @@ export default function TelemetryChart() {
             paddingAngle={3}
             strokeWidth={0}
             label={({ name, percent }) =>
-              `${name} ${(percent * 100).toFixed(0)}%`
+              `${name} ${((percent || 0) * 100).toFixed(0)}%`
             }
           >
             {data.map((entry, i) => (
