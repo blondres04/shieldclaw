@@ -1,17 +1,16 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import AuditDashboard from "./components/AuditDashboard";
 import Login from "./components/Login";
-import "./App.css";
 
 function App() {
   const [token, setToken] = useState<string | null>(
     localStorage.getItem("token"),
   );
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem("token");
     setToken(null);
-  };
+  }, []);
 
   if (!token) {
     return <Login onLogin={setToken} />;
@@ -19,11 +18,15 @@ function App() {
 
   return (
     <div>
-      <div style={styles.topBar}>
-        <button onClick={handleLogout} style={styles.logoutBtn}>
+      <nav style={styles.topBar} aria-label="Primary navigation">
+        <button
+          onClick={handleLogout}
+          style={styles.logoutBtn}
+          aria-label="Sign out of the dashboard"
+        >
           Logout
         </button>
-      </div>
+      </nav>
       <AuditDashboard onUnauthorized={handleLogout} />
     </div>
   );

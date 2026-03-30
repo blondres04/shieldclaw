@@ -71,56 +71,58 @@ export default function TelemetryChart({ onUnauthorized }: TelemetryChartProps) 
 
   if (error) {
     return (
-      <div style={styles.container}>
+      <section style={styles.container} role="region" aria-label="Audit telemetry">
         <p style={styles.error}>Telemetry unavailable: {error}</p>
-      </div>
+      </section>
     );
   }
 
   if (data.length === 0) {
     return (
-      <div style={styles.container}>
+      <section style={styles.container} role="region" aria-label="Audit telemetry">
         <p style={styles.muted}>No telemetry data yet.</p>
-      </div>
+      </section>
     );
   }
 
   return (
-    <section style={styles.container}>
+    <section style={styles.container} role="region" aria-label="Audit telemetry">
       <h2 style={styles.heading}>Audit Telemetry</h2>
-      <ResponsiveContainer width="100%" height={320}>
-        <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            nameKey="name"
-            cx="50%"
-            cy="50%"
-            innerRadius={70}
-            outerRadius={120}
-            paddingAngle={3}
-            strokeWidth={0}
-            label={({ name, percent }) =>
-              `${name} ${((percent || 0) * 100).toFixed(0)}%`
-            }
-          >
-            {data.map((entry, i) => (
-              <Cell key={`cell-${i}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip
-            contentStyle={{
-              background: "#1a1d27",
-              border: "1px solid #2e3142",
-              borderRadius: 8,
-              color: "#e1e2e8",
-            }}
-          />
-          <Legend
-            wrapperStyle={{ color: "#8b8fa3", fontSize: 13 }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
+      <div style={styles.chartWrapper}>
+        <ResponsiveContainer width="100%" height={350}>
+          <PieChart margin={{ top: 20, right: 40, bottom: 20, left: 40 }}>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={50}
+              outerRadius={80}
+              paddingAngle={3}
+              strokeWidth={0}
+              label={({ name, percent }) =>
+                `${name} ${((percent || 0) * 100).toFixed(0)}%`
+              }
+            >
+              {data.map((entry, i) => (
+                <Cell key={`cell-${i}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={{
+                background: "#1a1d27",
+                border: "1px solid #2e3142",
+                borderRadius: 8,
+                color: "#e1e2e8",
+              }}
+            />
+            <Legend
+              wrapperStyle={{ color: "#8b8fa3", fontSize: 13 }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
     </section>
   );
 }
@@ -130,14 +132,19 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#1a1d27",
     border: "1px solid #2e3142",
     borderRadius: 10,
-    padding: 24,
+    padding: "24px 16px",
     marginTop: 28,
+  },
+  chartWrapper: {
+    width: "100%",
+    minHeight: 350,
   },
   heading: {
     fontSize: 18,
     fontWeight: 600,
     color: "#e1e2e8",
-    margin: "0 0 16px",
+    margin: "0 0 8px",
+    paddingLeft: 24,
   },
   muted: {
     color: "#8b8fa3",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import type { PullRequest } from "../types/Audit";
 import TelemetryChart from "./TelemetryChart";
@@ -26,14 +26,17 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
   const [selectedCategory, setSelectedCategory] = useState<string>(OWASP_CATEGORIES[0]);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleAuthError = (status: number) => {
-    if (status === 401 || status === 403) {
-      localStorage.removeItem("token");
-      onUnauthorized();
-    }
-  };
+  const handleAuthError = useCallback(
+    (status: number) => {
+      if (status === 401 || status === 403) {
+        localStorage.removeItem("token");
+        onUnauthorized();
+      }
+    },
+    [onUnauthorized],
+  );
 
-  const fetchPending = async () => {
+  const fetchPending = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -56,39 +59,42 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [handleAuthError]);
 
   useEffect(() => {
     fetchPending();
-  }, []);
+  }, [fetchPending]);
 
-  const handleEvaluate = async (isApproved: boolean) => {
-    if (!pr) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(`${API_BASE}/${pr.prId}/evaluate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(),
-        },
-        body: JSON.stringify({
-          selectedThreatCategory: selectedCategory,
-          isApproved,
-        }),
-      });
-      if (res.status === 401 || res.status === 403) {
-        handleAuthError(res.status);
-        return;
+  const handleEvaluate = useCallback(
+    async (isApproved: boolean) => {
+      if (!pr) return;
+      setSubmitting(true);
+      try {
+        const res = await fetch(`${API_BASE}/${pr.prId}/evaluate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+          },
+          body: JSON.stringify({
+            selectedThreatCategory: selectedCategory,
+            isApproved,
+          }),
+        });
+        if (res.status === 401 || res.status === 403) {
+          handleAuthError(res.status);
+          return;
+        }
+        if (!res.ok) throw new Error(`Evaluate failed: ${res.status}`);
+        await fetchPending();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Submit error");
+      } finally {
+        setSubmitting(false);
       }
-      if (!res.ok) throw new Error(`Evaluate failed: ${res.status}`);
-      await fetchPending();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Submit error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+    },
+    [pr, selectedCategory, handleAuthError, fetchPending],
+  );
 
   if (loading) {
     return (
@@ -101,8 +107,12 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
   if (error) {
     return (
       <div style={styles.center}>
-        <p style={styles.error}>{error}</p>
-        <button style={styles.retryBtn} onClick={fetchPending}>
+        <p style={styles.error} role="alert">{error}</p>
+        <button
+          style={styles.retryBtn}
+          onClick={fetchPending}
+          aria-label="Retry loading pending audit"
+        >
           Retry
         </button>
       </div>
@@ -111,7 +121,7 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
 
   if (!pr) {
     return (
-      <div style={styles.center}>
+      <div style={styles.emptyState}>
         <p style={styles.muted}>No pending audits. You're all caught up.</p>
         <TelemetryChart onUnauthorized={onUnauthorized} />
       </div>
@@ -136,7 +146,7 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
         />
       </section>
 
-      <section style={styles.actionPanel}>
+      <section style={styles.actionPanel} aria-label="Audit action panel">
         <h2 style={styles.actionTitle}>Audit Action Panel</h2>
 
         <div style={styles.formRow}>
@@ -148,6 +158,7 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
             style={styles.select}
+            aria-label="Select OWASP threat category"
           >
             {OWASP_CATEGORIES.map((cat) => (
               <option key={cat} value={cat}>
@@ -157,11 +168,12 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
           </select>
         </div>
 
-        <div style={styles.buttonRow}>
+        <div style={styles.buttonRow} role="group" aria-label="Audit decision">
           <button
             disabled={submitting}
             onClick={() => handleEvaluate(true)}
             style={styles.approveBtn}
+            aria-label="Approve pull request as safe"
           >
             {submitting ? "Submitting…" : "Approve (No Threat)"}
           </button>
@@ -169,6 +181,7 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
             disabled={submitting}
             onClick={() => handleEvaluate(false)}
             style={styles.rejectBtn}
+            aria-label="Reject pull request as vulnerable"
           >
             {submitting ? "Submitting…" : "Reject (Vulnerability Found)"}
           </button>
@@ -193,6 +206,12 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "center",
     minHeight: "60vh",
     gap: 16,
+  },
+  emptyState: {
+    maxWidth: 1200,
+    margin: "0 auto",
+    padding: "64px 24px 32px",
+    textAlign: "center" as const,
   },
   muted: {
     color: "#8b8fa3",
