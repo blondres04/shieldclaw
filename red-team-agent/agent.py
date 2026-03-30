@@ -77,6 +77,30 @@ def clean_llm_output(raw: str) -> str:
     return text.strip()
 
 
+def clean_and_parse_llm_output(raw_text: str) -> dict:
+    """Clean LLM output and parse it as JSON.
+
+    Handles three common LLM failure modes:
+      1. Clean JSON
+      2. JSON wrapped in markdown code fences
+      3. JSON preceded by conversational preamble text
+    """
+    cleaned = clean_llm_output(raw_text)
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extract the first top-level JSON object from the text
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(cleaned[start : end + 1])
+
+    raise json.JSONDecodeError("No JSON object found in LLM output", cleaned, 0)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -108,13 +132,11 @@ def main() -> None:
     raw_output = response["message"]["content"]
     print(f"[*] Raw LLM output length    : {len(raw_output)} chars")
 
-    cleaned = clean_llm_output(raw_output)
-
     try:
-        data = json.loads(cleaned)
+        data = clean_and_parse_llm_output(raw_output)
     except json.JSONDecodeError as e:
         print(f"[!] JSON parse error: {e}")
-        print(f"[!] Cleaned output was:\n{cleaned}")
+        print(f"[!] Raw output was:\n{raw_output}")
         sys.exit(1)
 
     # Force our deterministic values so the LLM can't override them

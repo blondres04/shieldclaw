@@ -1,2 +1,4 @@
 ollama
 pydantic
+pytest
+pytest-mock
