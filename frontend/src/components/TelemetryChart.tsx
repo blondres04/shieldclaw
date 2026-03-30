@@ -31,13 +31,24 @@ interface ChartEntry {
   color: string;
 }
 
-export default function TelemetryChart() {
+interface TelemetryChartProps {
+  onUnauthorized: () => void;
+}
+
+export default function TelemetryChart({ onUnauthorized }: TelemetryChartProps) {
   const [data, setData] = useState<ChartEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/v1/telemetry/stats")
+    fetch("http://localhost:8080/api/v1/telemetry/stats", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+    })
       .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem("token");
+          onUnauthorized();
+          throw new Error("Unauthorized");
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json() as Promise<TelemetryStats>;
       })
@@ -51,7 +62,11 @@ export default function TelemetryChart() {
         );
         setData(entries);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Fetch error"));
+      .catch((e) => {
+        if (e instanceof Error && e.message !== "Unauthorized") {
+          setError(e.message);
+        }
+      });
   }, []);
 
   if (error) {

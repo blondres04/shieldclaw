@@ -11,18 +11,39 @@ const OWASP_CATEGORIES = [
 
 const API_BASE = "http://localhost:8080/api/v1/audit";
 
-export default function AuditDashboard() {
+function authHeaders(): HeadersInit {
+  return { Authorization: `Bearer ${localStorage.getItem("token")}` };
+}
+
+interface AuditDashboardProps {
+  onUnauthorized: () => void;
+}
+
+export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) {
   const [pr, setPr] = useState<PullRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>(OWASP_CATEGORIES[0]);
   const [submitting, setSubmitting] = useState(false);
 
+  const handleAuthError = (status: number) => {
+    if (status === 401 || status === 403) {
+      localStorage.removeItem("token");
+      onUnauthorized();
+    }
+  };
+
   const fetchPending = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/pending`);
+      const res = await fetch(`${API_BASE}/pending`, {
+        headers: authHeaders(),
+      });
+      if (res.status === 401 || res.status === 403) {
+        handleAuthError(res.status);
+        return;
+      }
       if (res.status === 204) {
         setPr(null);
       } else if (res.ok) {
@@ -47,12 +68,19 @@ export default function AuditDashboard() {
     try {
       const res = await fetch(`${API_BASE}/${pr.prId}/evaluate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(),
+        },
         body: JSON.stringify({
           selectedThreatCategory: selectedCategory,
           isApproved,
         }),
       });
+      if (res.status === 401 || res.status === 403) {
+        handleAuthError(res.status);
+        return;
+      }
       if (!res.ok) throw new Error(`Evaluate failed: ${res.status}`);
       await fetchPending();
     } catch (e) {
@@ -85,6 +113,7 @@ export default function AuditDashboard() {
     return (
       <div style={styles.center}>
         <p style={styles.muted}>No pending audits. You're all caught up.</p>
+        <TelemetryChart onUnauthorized={onUnauthorized} />
       </div>
     );
   }
@@ -146,7 +175,7 @@ export default function AuditDashboard() {
         </div>
       </section>
 
-      <TelemetryChart />
+      <TelemetryChart onUnauthorized={onUnauthorized} />
     </div>
   );
 }
@@ -155,14 +184,14 @@ const styles: Record<string, React.CSSProperties> = {
   wrapper: {
     maxWidth: 1200,
     margin: "0 auto",
-    padding: "32px 24px",
+    padding: "0 24px 32px",
   },
   center: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    minHeight: "100vh",
+    minHeight: "60vh",
     gap: 16,
   },
   muted: {
