@@ -25,28 +25,40 @@ public class OfflinePayloadIngester {
 
     @Scheduled(fixedRate = 15000)
     public void scanAndIngest() {
-        Path dir = Path.of(payloadDirectory);
+        Path readyDir = Path.of(payloadDirectory, "ready");
 
-        if (!Files.isDirectory(dir)) {
-            log.debug("Payload directory does not exist: {}", dir);
+        if (!Files.isDirectory(readyDir)) {
+            log.debug("Ready directory does not exist: {}", readyDir);
             return;
         }
 
-        File[] files = dir.toFile().listFiles((d, name) -> name.endsWith(".json"));
+        File[] files = readyDir.toFile().listFiles((d, name) -> name.endsWith(".json"));
 
         if (files == null || files.length == 0) {
-            log.debug("No offline payloads found in {}", dir);
+            log.debug("No ready payloads found in {}", readyDir);
             return;
         }
 
         for (File file : files) {
             try {
                 PRPayloadDTO payload = objectMapper.readValue(file, PRPayloadDTO.class);
-                kafkaProducerService.publishPayload(payload);
-                log.info("Ingested offline payload [{}] from {}", payload.prId(), file.getName());
+                String messageKey = extractKey(file.getName(), payload);
+                kafkaProducerService.publishPayload(messageKey, payload);
+                log.info("Ingested payload [key={}] from {}", messageKey, file.getName());
+
+                if (!file.delete()) {
+                    log.warn("Failed to delete ingested file: {}", file.getName());
+                }
             } catch (Exception e) {
-                log.error("Failed to deserialize payload from {}: {}", file.getName(), e.getMessage());
+                log.error("Failed to process payload {}: {}", file.getName(), e.getMessage());
             }
         }
+    }
+
+    private String extractKey(String filename, PRPayloadDTO payload) {
+        if (payload.prId() != null && !payload.prId().isBlank()) {
+            return payload.prId();
+        }
+        return filename.replace(".json", "");
     }
 }

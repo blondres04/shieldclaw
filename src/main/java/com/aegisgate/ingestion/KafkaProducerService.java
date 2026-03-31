@@ -13,7 +13,7 @@ public class KafkaProducerService {
 
     private final KafkaTemplate<String, PRPayloadDTO> kafkaTemplate;
 
-    public void publishPayload(PRPayloadDTO payload) {
-        kafkaTemplate.send(TOPIC, payload.prId(), payload);
+    public void publishPayload(String key, PRPayloadDTO payload) {
+        kafkaTemplate.send(TOPIC, key, payload);
     }
 }

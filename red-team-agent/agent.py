@@ -36,6 +36,8 @@ OWASP_CATEGORIES = [
 
 _default_output = Path(__file__).resolve().parent.parent / "src" / "main" / "resources" / "offline-payloads"
 OUTPUT_DIR = Path(os.environ.get("PAYLOAD_DIR", str(_default_output)))
+TEMP_DIR = OUTPUT_DIR / "temp"
+READY_DIR = OUTPUT_DIR / "ready"
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL = "gemma3:12b"
 
@@ -145,12 +147,16 @@ def generate_payload() -> None:
     output_dict = payload.model_dump()
     output_dict["status"] = "PENDING_REVIEW"
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"ai-generated-{pr_id}.json"
-    filepath = OUTPUT_DIR / filename
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    READY_DIR.mkdir(parents=True, exist_ok=True)
 
-    filepath.write_text(json.dumps(output_dict, indent=2), encoding="utf-8")
-    print(f"[+] Payload written to {filepath}")
+    filename = f"ai-generated-{pr_id}.json"
+    temp_path = TEMP_DIR / filename
+    ready_path = READY_DIR / filename
+
+    temp_path.write_text(json.dumps(output_dict, indent=2), encoding="utf-8")
+    os.rename(str(temp_path), str(ready_path))
+    print(f"[+] Payload staged to {ready_path}")
 
 
 def main() -> None:
