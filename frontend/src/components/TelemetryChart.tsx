@@ -11,6 +11,7 @@ import type { TelemetryStats } from "../types/Audit";
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING_AUDIT: "#f1c40f",
+  IN_REVIEW: "#3498db",
   AUDIT_PASSED: "#2ecc71",
   AUDIT_FAILED_FALSE_POSITIVE: "#e74c3c",
   AUDIT_FAILED_MISSED_THREAT: "#e67e22",
@@ -20,6 +21,7 @@ const FALLBACK_COLOR = "#6c5ce7";
 
 const LABEL_MAP: Record<string, string> = {
   PENDING_AUDIT: "Pending",
+  IN_REVIEW: "In Review",
   AUDIT_PASSED: "Passed",
   AUDIT_FAILED_FALSE_POSITIVE: "False Positive",
   AUDIT_FAILED_MISSED_THREAT: "Missed Threat",

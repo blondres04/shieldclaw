@@ -9,6 +9,9 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.Instant;
 
 @Entity
 @Table(name = "pull_requests")
@@ -35,4 +38,7 @@ public class PullRequestEntity {
 
     @Enumerated(EnumType.STRING)
     private AuditStatus status;
+
+    @UpdateTimestamp
+    private Instant updatedAt;
 }
