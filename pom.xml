@@ -12,10 +12,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.aegisgate</groupId>
-    <artifactId>aegis-gate</artifactId>
+    <groupId>com.shieldclaw</groupId>
+    <artifactId>shield-claw</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>aegis-gate</name>
+    <name>shield-claw</name>
     <description>API gateway with ingestion, audit, and telemetry bounded contexts</description>
 
     <properties>

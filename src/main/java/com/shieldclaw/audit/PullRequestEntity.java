@@ -1,4 +1,4 @@
-package com.aegisgate.audit;
+package com.shieldclaw.audit;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

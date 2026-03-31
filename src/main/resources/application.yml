@@ -6,12 +6,12 @@ payload:
 
 spring:
   application:
-    name: aegis-gate
+    name: shield-claw
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/aegis_db
-    username: aegis
-    password: aegis
+    url: jdbc:postgresql://localhost:5432/shieldclaw_db
+    username: shieldclaw
+    password: shieldclaw
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -29,7 +29,7 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
     consumer:
-      group-id: aegis-group
+      group-id: shieldclaw-group
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:

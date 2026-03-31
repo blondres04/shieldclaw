@@ -1,4 +1,4 @@
-package com.aegisgate.audit;
+package com.shieldclaw.audit;
 
 public enum AuditStatus {
     PENDING_AUDIT,

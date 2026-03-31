@@ -1,4 +1,4 @@
-package com.aegisgate.audit;
+package com.shieldclaw.audit;
 
 public record AuditDecisionRequest(
         String selectedThreatCategory,

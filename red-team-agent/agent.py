@@ -1,5 +1,5 @@
 """
-AegisGate Red Team Agent
+ShieldClaw Red Team Agent
 Autonomous payload generator that uses a local Ollama model to produce
 adversarial Java Spring Boot snippets for the DevSecOps audit pipeline.
 """

@@ -1,3 +1,3 @@
-package com.aegisgate.security;
+package com.shieldclaw.security;
 
 public record TokenResponse(String token) {}

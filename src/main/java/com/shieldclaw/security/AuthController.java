@@ -1,4 +1,4 @@
-package com.aegisgate.security;
+package com.shieldclaw.security;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;

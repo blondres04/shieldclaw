@@ -1,6 +1,6 @@
-package com.aegisgate.ingestion;
+package com.shieldclaw.ingestion;
 
-import com.aegisgate.audit.PRPayloadDTO;
+import com.shieldclaw.audit.PRPayloadDTO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;

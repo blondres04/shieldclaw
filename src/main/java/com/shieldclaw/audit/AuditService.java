@@ -1,4 +1,4 @@
-package com.aegisgate.audit;
+package com.shieldclaw.audit;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;

@@ -1,11 +1,11 @@
-package com.aegisgate.telemetry;
+package com.shieldclaw.telemetry;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.aegisgate.audit.AuditStatus;
-import com.aegisgate.audit.PullRequestRepository;
+import com.shieldclaw.audit.AuditStatus;
+import com.shieldclaw.audit.PullRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

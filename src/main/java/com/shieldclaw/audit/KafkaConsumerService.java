@@ -1,4 +1,4 @@
-package com.aegisgate.audit;
+package com.shieldclaw.audit;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +12,7 @@ public class KafkaConsumerService {
 
     private final PullRequestRepository pullRequestRepository;
 
-    @KafkaListener(topics = "audit.pr.ingested", groupId = "aegis-group")
+    @KafkaListener(topics = "audit.pr.ingested", groupId = "shieldclaw-group")
     public void consume(PRPayloadDTO payload) {
         log.info("Consumed PR payload: {}", payload);
 

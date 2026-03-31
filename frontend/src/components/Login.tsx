@@ -39,7 +39,7 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div style={styles.backdrop}>
       <form onSubmit={handleSubmit} style={styles.card}>
-        <h1 style={styles.title}>Aegis Gate</h1>
+        <h1 style={styles.title}>Shield Claw</h1>
         <p style={styles.subtitle}>DevSecOps Audit Platform</p>
 
         {error && <div style={styles.error}>{error}</div>}

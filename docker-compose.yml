@@ -1,19 +1,19 @@
 services:
   postgres:
     image: postgres:16
-    container_name: aegis-postgres
+    container_name: shieldclaw-postgres
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: aegis
-      POSTGRES_PASSWORD: aegis
-      POSTGRES_DB: aegis_db
+      POSTGRES_USER: shieldclaw
+      POSTGRES_PASSWORD: shieldclaw
+      POSTGRES_DB: shieldclaw_db
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   kafka:
     image: apache/kafka:3.8.0
-    container_name: aegis-kafka
+    container_name: shieldclaw-kafka
     ports:
       - "9092:9092"
     environment:
@@ -32,13 +32,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: aegis-backend
+    container_name: shieldclaw-backend
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aegis_db
-      SPRING_DATASOURCE_USERNAME: aegis
-      SPRING_DATASOURCE_PASSWORD: aegis
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/shieldclaw_db
+      SPRING_DATASOURCE_USERNAME: shieldclaw
+      SPRING_DATASOURCE_PASSWORD: shieldclaw
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYLOAD_DIRECTORY: /app/payloads
     volumes:
@@ -51,7 +51,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: aegis-frontend
+    container_name: shieldclaw-frontend
     ports:
       - "5173:80"
 
@@ -59,7 +59,7 @@ services:
     build:
       context: ./red-team-agent
       dockerfile: Dockerfile
-    container_name: aegis-red-team
+    container_name: shieldclaw-red-team
     environment:
       PAYLOAD_DIR: /app/payloads
       OLLAMA_HOST: http://host.docker.internal:11434

@@ -1,4 +1,4 @@
-package com.aegisgate.telemetry;
+package com.shieldclaw.telemetry;
 
 import java.util.Map;
 

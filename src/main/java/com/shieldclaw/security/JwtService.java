@@ -1,4 +1,4 @@
-package com.aegisgate.security;
+package com.shieldclaw.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -14,7 +14,7 @@ import java.util.Date;
 public class JwtService {
 
     private static final String BASE64_SECRET =
-            "VGhpc0lzQVN1cGVyU2VjcmV0S2V5Rm9yQWVnaXNHYXRlSldUMjAyNiE=";
+            "VGhpc0lzQVN1cGVyU2VjcmV0S2V5Rm9yU2hpZWxkQ2xhd0pXVDIwMjYh";
 
     private static final long EXPIRATION_MS = 1000 * 60 * 60 * 8; // 8 hours
 

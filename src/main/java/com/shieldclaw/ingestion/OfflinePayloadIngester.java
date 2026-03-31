@@ -1,6 +1,6 @@
-package com.aegisgate.ingestion;
+package com.shieldclaw.ingestion;
 
-import com.aegisgate.audit.PRPayloadDTO;
+import com.shieldclaw.audit.PRPayloadDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
