@@ -2,3 +2,5 @@ ollama
 pydantic
 pytest
 pytest-mock
+PyGithub
+python-dotenv
