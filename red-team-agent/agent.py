@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 from pathlib import Path
 from random import choice
@@ -105,7 +106,8 @@ def clean_and_parse_llm_output(raw_text: str) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def generate_payload() -> None:
+    """Single payload generation cycle."""
     category = choice(OWASP_CATEGORIES)
     pr_id = f"PR-{uuid.uuid4().hex[:8].upper()}"
     system_prompt = build_system_prompt(category)
@@ -132,26 +134,14 @@ def main() -> None:
     raw_output = response["message"]["content"]
     print(f"[*] Raw LLM output length    : {len(raw_output)} chars")
 
-    try:
-        data = clean_and_parse_llm_output(raw_output)
-    except json.JSONDecodeError as e:
-        print(f"[!] JSON parse error: {e}")
-        print(f"[!] Raw output was:\n{raw_output}")
-        sys.exit(1)
+    data = clean_and_parse_llm_output(raw_output)
 
-    # Force our deterministic values so the LLM can't override them
     data["prId"] = pr_id
     data["isPoisoned"] = True
 
-    try:
-        payload = PRPayload(**data)
-    except ValidationError as e:
-        print(f"[!] Pydantic validation failed:\n{e}")
-        sys.exit(1)
-
+    payload = PRPayload(**data)
     print("[+] Pydantic validation passed")
 
-    # Serialize with the extra `status` field the backend ingester expects
     output_dict = payload.model_dump()
     output_dict["status"] = "PENDING_REVIEW"
 
@@ -161,6 +151,21 @@ def main() -> None:
 
     filepath.write_text(json.dumps(output_dict, indent=2), encoding="utf-8")
     print(f"[+] Payload written to {filepath}")
+
+
+def main() -> None:
+    print("[*] Red Team Agent starting (continuous mode)")
+    while True:
+        try:
+            generate_payload()
+        except KeyboardInterrupt:
+            print("\n[*] Shutting down gracefully")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[!] Error during generation: {e}")
+
+        print("[*] Sleeping 15s before next cycle...\n")
+        time.sleep(15)
 
 
 if __name__ == "__main__":

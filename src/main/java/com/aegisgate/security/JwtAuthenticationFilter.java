@@ -2,6 +2,7 @@ package com.aegisgate.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final String COOKIE_NAME = "jwt";
+
     private final JwtService jwtService;
 
     @Override
@@ -25,19 +28,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
 
-        String authHeader = request.getHeader("Authorization");
+        String token = extractTokenFromCookies(request);
 
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-
-            if (jwtService.isTokenValid(token)) {
-                String username = jwtService.extractUsername(token);
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        username, null, List.of());
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            }
+        if (token != null && jwtService.isTokenValid(token)) {
+            String username = jwtService.extractUsername(token);
+            var authentication = new UsernamePasswordAuthenticationToken(
+                    username, null, List.of());
+            SecurityContextHolder.getContext().setAuthentication(authentication);
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private String extractTokenFromCookies(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) return null;
+
+        for (Cookie cookie : cookies) {
+            if (COOKIE_NAME.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 interface LoginProps {
-  onLogin: (token: string) => void;
+  onLogin: () => void;
 }
 
 export default function Login({ onLogin }: LoginProps) {
@@ -19,6 +19,7 @@ export default function Login({ onLogin }: LoginProps) {
       const res = await fetch("http://localhost:8080/api/v1/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
 
@@ -27,9 +28,7 @@ export default function Login({ onLogin }: LoginProps) {
         throw new Error(body?.error ?? `Login failed (${res.status})`);
       }
 
-      const { token } = await res.json();
-      localStorage.setItem("token", token);
-      onLogin(token);
+      onLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

@@ -41,11 +41,10 @@ export default function TelemetryChart({ onUnauthorized }: TelemetryChartProps) 
 
   useEffect(() => {
     fetch("http://localhost:8080/api/v1/telemetry/stats", {
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      credentials: "include",
     })
       .then((res) => {
         if (res.status === 401 || res.status === 403) {
-          localStorage.removeItem("token");
           onUnauthorized();
           throw new Error("Unauthorized");
         }

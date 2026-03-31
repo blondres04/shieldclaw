@@ -1,19 +1,47 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AuditDashboard from "./components/AuditDashboard";
 import Login from "./components/Login";
 
 function App() {
-  const [token, setToken] = useState<string | null>(
-    localStorage.getItem("token"),
-  );
+  const [authed, setAuthed] = useState<boolean | null>(null);
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem("token");
-    setToken(null);
+  const checkSession = useCallback(async () => {
+    try {
+      const res = await fetch("http://localhost:8080/api/v1/auth/me", {
+        credentials: "include",
+      });
+      setAuthed(res.ok);
+    } catch {
+      setAuthed(false);
+    }
   }, []);
 
-  if (!token) {
-    return <Login onLogin={setToken} />;
+  useEffect(() => {
+    checkSession();
+  }, [checkSession]);
+
+  const handleLogout = useCallback(async () => {
+    await fetch("http://localhost:8080/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
+    setAuthed(false);
+  }, []);
+
+  const handleLogin = useCallback(() => {
+    setAuthed(true);
+  }, []);
+
+  if (authed === null) {
+    return (
+      <div style={styles.loading}>
+        <p style={styles.muted}>Verifying session…</p>
+      </div>
+    );
+  }
+
+  if (!authed) {
+    return <Login onLogin={handleLogin} />;
   }
 
   return (
@@ -33,6 +61,17 @@ function App() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  loading: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "100vh",
+    background: "#0f1117",
+  },
+  muted: {
+    color: "#8b8fa3",
+    fontSize: 16,
+  },
   topBar: {
     display: "flex",
     justifyContent: "flex-end",

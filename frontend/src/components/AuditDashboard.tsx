@@ -11,10 +11,6 @@ const OWASP_CATEGORIES = [
 
 const API_BASE = "http://localhost:8080/api/v1/audit";
 
-function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${localStorage.getItem("token")}` };
-}
-
 interface AuditDashboardProps {
   onUnauthorized: () => void;
 }
@@ -29,7 +25,6 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
   const handleAuthError = useCallback(
     (status: number) => {
       if (status === 401 || status === 403) {
-        localStorage.removeItem("token");
         onUnauthorized();
       }
     },
@@ -41,7 +36,7 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/pending`, {
-        headers: authHeaders(),
+        credentials: "include",
       });
       if (res.status === 401 || res.status === 403) {
         handleAuthError(res.status);
@@ -72,10 +67,8 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
       try {
         const res = await fetch(`${API_BASE}/${pr.prId}/evaluate`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({
             selectedThreatCategory: selectedCategory,
             isApproved,
