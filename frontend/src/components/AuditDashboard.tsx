@@ -139,6 +139,13 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
         />
       </section>
 
+      {pr.aiJustificationGroundTruth && (
+        <section style={styles.aiAnalysis} aria-label="AI threat analysis">
+          <h2 style={styles.aiAnalysisTitle}>AI Threat Analysis</h2>
+          <p style={styles.aiAnalysisBody}>{pr.aiJustificationGroundTruth}</p>
+        </section>
+      )}
+
       <section style={styles.actionPanel} aria-label="Audit action panel">
         <h2 style={styles.actionTitle}>Audit Action Panel</h2>
 
@@ -248,6 +255,29 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     border: "1px solid #2e3142",
     marginBottom: 28,
+  },
+  aiAnalysis: {
+    background: "#13151d",
+    border: "1px solid #2e3142",
+    borderLeft: "3px solid #c084fc",
+    borderRadius: 10,
+    padding: "20px 24px",
+    marginBottom: 20,
+  },
+  aiAnalysisTitle: {
+    fontSize: 15,
+    fontWeight: 600,
+    color: "#c084fc",
+    margin: "0 0 12px",
+    letterSpacing: "0.02em",
+    textTransform: "uppercase" as const,
+  },
+  aiAnalysisBody: {
+    fontSize: 15,
+    lineHeight: 1.7,
+    color: "#c8c9d0",
+    margin: 0,
+    whiteSpace: "pre-wrap" as const,
   },
   actionPanel: {
     background: "#1a1d27",
