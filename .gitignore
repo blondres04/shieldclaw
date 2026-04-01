@@ -17,3 +17,10 @@ Thumbs.db
 /postgres-data/
 /mysql-data/
 /mongo-data/
+
+.env
+*.pem
+*.key
+node_modules/
+target/
+*.jar
