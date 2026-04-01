@@ -4,3 +4,4 @@ pytest
 pytest-mock
 PyGithub
 python-dotenv
+docker>=7.0.0

@@ -5,6 +5,7 @@ export interface PullRequest {
   originalSnippet: string;
   poisonedSnippet: string;
   aiJustificationGroundTruth?: string;
+  empiricallyVerified?: boolean;
 }
 
 export interface TelemetryStats {

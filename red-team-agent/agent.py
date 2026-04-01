@@ -5,6 +5,7 @@ Ollama model to identify vulnerabilities and generate exploit payloads.
 """
 
 import json
+import logging
 import os
 import re
 import sys
@@ -17,6 +18,9 @@ from ollama import Client
 from pydantic import BaseModel, ValidationError
 
 from github_recon import GitHubRecon
+from sandbox_orchestrator import SandboxOrchestrator
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 # ---------------------------------------------------------------------------
 # Targets (hardcoded safe defaults for Phase 1 testing)
@@ -63,6 +67,11 @@ SYSTEM_PROMPT = (
     "it by its OWASP Top 10 category, extract the vulnerable code section, "
     "and write a malicious exploit payload that demonstrates how the flaw "
     "can be exploited.\n\n"
+    "CRITICAL: Your payload will be executed as a bash script inside an "
+    "Alpine Linux container. The target repository has been cloned into the "
+    "/workspace/repo_name directory (repo_name is the repository name segment "
+    "of the GitHub slug, e.g. owner/repo_name). You are currently in that "
+    "directory when the script runs. Write your exploit code accordingly.\n\n"
     "Output ONLY raw JSON. No markdown formatting, no backticks, no "
     "conversational text. The JSON keys must exactly match:\n"
     "  prId            - string, use the value provided in the user message\n"
@@ -125,8 +134,8 @@ def clean_and_parse_llm_output(raw_text: str) -> dict:
 # Core analysis cycle
 # ---------------------------------------------------------------------------
 
-def analyze_diff(diff: str) -> None:
-    """Analyze a PR diff and produce a validated payload."""
+def analyze_diff(diff: str, repo: str, pr_number: int) -> None:
+    """Analyze a PR diff, validate via sandbox, and produce a payload."""
     pr_id = f"PR-{uuid.uuid4().hex[:8].upper()}"
     user_prompt = build_user_prompt(pr_id, diff)
 
@@ -156,8 +165,13 @@ def analyze_diff(diff: str) -> None:
     payload = PRPayload(**data)
     print(f"[+] Pydantic validation passed (threat: {payload.threatCategory})")
 
+    sandbox = SandboxOrchestrator()
+    verified = sandbox.execute_payload(repo, pr_number, payload.poisonedSnippet)
+    print(f"[+] Empirical verification   : {'PASS' if verified else 'FAIL'}")
+
     output_dict = payload.model_dump()
     output_dict["status"] = "PENDING_REVIEW"
+    output_dict["empiricallyVerified"] = verified
 
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
     READY_DIR.mkdir(parents=True, exist_ok=True)
@@ -192,7 +206,7 @@ def main() -> None:
                     time.sleep(15)
                     continue
 
-                analyze_diff(diff)
+                analyze_diff(diff, TARGET_REPO, TARGET_PR)
 
             except KeyboardInterrupt:
                 print("\n[*] Shutting down gracefully")

@@ -1,11 +1,14 @@
 package com.shieldclaw.audit;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public record PRPayloadDTO(
         String prId,
         String threatCategory,
-        boolean isPoisoned,
+        @JsonProperty("isPoisoned") boolean isPoisoned,
         String originalSnippet,
         String poisonedSnippet,
-        String aiJustificationGroundTruth,
+        @JsonProperty("aiJustificationGroundTruth") String aiJustificationGroundTruth,
+        @JsonProperty("empiricallyVerified") Boolean empiricallyVerified,
         String status
 ) {}

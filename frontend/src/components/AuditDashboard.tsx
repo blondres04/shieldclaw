@@ -146,6 +146,22 @@ export default function AuditDashboard({ onUnauthorized }: AuditDashboardProps) 
         </section>
       )}
 
+      {pr.empiricallyVerified != null && (
+        <div
+          style={
+            pr.empiricallyVerified
+              ? styles.sandboxBadgePass
+              : styles.sandboxBadgeFail
+          }
+          role="status"
+          aria-label="Sandbox verification result"
+        >
+          {pr.empiricallyVerified
+            ? "\u2705 Sandbox Verified: Exploit Successful"
+            : "\u274C Sandbox Verified: Exploit Failed"}
+        </div>
+      )}
+
       <section style={styles.actionPanel} aria-label="Audit action panel">
         <h2 style={styles.actionTitle}>Audit Action Panel</h2>
 
@@ -278,6 +294,28 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#c8c9d0",
     margin: 0,
     whiteSpace: "pre-wrap" as const,
+  },
+  sandboxBadgePass: {
+    padding: "12px 20px",
+    background: "rgba(46, 204, 113, 0.12)",
+    border: "1px solid #2ecc71",
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: 700,
+    color: "#2ecc71",
+    marginBottom: 20,
+    textAlign: "center" as const,
+  },
+  sandboxBadgeFail: {
+    padding: "12px 20px",
+    background: "rgba(231, 76, 60, 0.12)",
+    border: "1px solid #e74c3c",
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: 700,
+    color: "#e74c3c",
+    marginBottom: 20,
+    textAlign: "center" as const,
   },
   actionPanel: {
     background: "#1a1d27",

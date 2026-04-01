@@ -1,5 +1,6 @@
 package com.shieldclaw.audit;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -25,6 +26,7 @@ public class PullRequestEntity {
 
     private String threatCategory;
 
+    @JsonProperty("isPoisoned")
     private boolean isPoisoned;
 
     @Column(columnDefinition = "TEXT")
@@ -34,7 +36,11 @@ public class PullRequestEntity {
     private String poisonedSnippet;
 
     @Column(columnDefinition = "TEXT")
+    @JsonProperty("aiJustificationGroundTruth")
     private String aiJustificationGroundTruth;
+
+    @JsonProperty("empiricallyVerified")
+    private Boolean empiricallyVerified;
 
     @Enumerated(EnumType.STRING)
     private AuditStatus status;

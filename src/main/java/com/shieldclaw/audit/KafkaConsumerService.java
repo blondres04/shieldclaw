@@ -23,6 +23,7 @@ public class KafkaConsumerService {
         entity.setOriginalSnippet(payload.originalSnippet());
         entity.setPoisonedSnippet(payload.poisonedSnippet());
         entity.setAiJustificationGroundTruth(payload.aiJustificationGroundTruth());
+        entity.setEmpiricallyVerified(payload.empiricallyVerified());
         entity.setStatus(AuditStatus.PENDING_AUDIT);
 
         pullRequestRepository.save(entity);
