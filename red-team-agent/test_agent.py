@@ -20,6 +20,7 @@ VALID_PAYLOAD = {
     "isPoisoned": True,
     "originalSnippet": 'String query = "SELECT * FROM users WHERE id = ?";',
     "poisonedSnippet": 'String query = "SELECT * FROM users WHERE id = " + userId;',
+    "aiJustificationGroundTruth": "Concatenating user input into a SQL query enables injection.",
 }
 
 

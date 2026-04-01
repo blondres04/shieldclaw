@@ -60,9 +60,12 @@ services:
       context: ./red-team-agent
       dockerfile: Dockerfile
     container_name: shieldclaw-red-team
+    env_file:
+      - ./red-team-agent/.env
     environment:
       PAYLOAD_DIR: /app/payloads
       OLLAMA_HOST: http://host.docker.internal:11434
+      PYTHONUNBUFFERED: 1
     volumes:
       - shared-payloads:/app/payloads
 

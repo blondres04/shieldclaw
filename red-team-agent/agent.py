@@ -1,7 +1,7 @@
 """
 ShieldClaw Red Team Agent
-Autonomous payload generator that uses a local Ollama model to produce
-adversarial Java Spring Boot snippets for the DevSecOps audit pipeline.
+Targeted PR analyzer that uses GitHub Recon to fetch real diffs and a local
+Ollama model to identify vulnerabilities and generate exploit payloads.
 """
 
 import json
@@ -11,36 +11,37 @@ import sys
 import time
 import uuid
 from pathlib import Path
-from random import choice
+from typing import Optional
 
-import ollama
 from ollama import Client
 from pydantic import BaseModel, ValidationError
 
+from github_recon import GitHubRecon
+
 # ---------------------------------------------------------------------------
-# Schema
+# Targets (hardcoded safe defaults for Phase 1 testing)
 # ---------------------------------------------------------------------------
 
-OWASP_CATEGORIES = [
-    "OWASP_A01 - Broken Access Control",
-    "OWASP_A02 - Cryptographic Failures",
-    "OWASP_A03 - Injection",
-    "OWASP_A04 - Insecure Design",
-    "OWASP_A05 - Security Misconfiguration",
-    "OWASP_A06 - Vulnerable and Outdated Components",
-    "OWASP_A07 - Identification and Authentication Failures",
-    "OWASP_A08 - Software and Data Integrity Failures",
-    "OWASP_A09 - Security Logging and Monitoring Failures",
-    "OWASP_A10 - Server-Side Request Forgery (SSRF)",
-]
+TARGET_REPO = "octocat/Hello-World"
+TARGET_PR = 1
 
-_default_output = Path(__file__).resolve().parent.parent / "src" / "main" / "resources" / "offline-payloads"
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+_default_output = (
+    Path(__file__).resolve().parent.parent
+    / "src" / "main" / "resources" / "offline-payloads"
+)
 OUTPUT_DIR = Path(os.environ.get("PAYLOAD_DIR", str(_default_output)))
 TEMP_DIR = OUTPUT_DIR / "temp"
 READY_DIR = OUTPUT_DIR / "ready"
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 MODEL = "gemma3:12b"
 
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
 
 class PRPayload(BaseModel):
     prId: str
@@ -48,23 +49,40 @@ class PRPayload(BaseModel):
     isPoisoned: bool
     originalSnippet: str
     poisonedSnippet: str
+    aiJustificationGroundTruth: str
 
 
 # ---------------------------------------------------------------------------
-# Prompt
+# Prompts
 # ---------------------------------------------------------------------------
 
-def build_system_prompt(owasp_category: str) -> str:
+SYSTEM_PROMPT = (
+    "You are an elite DevSecOps Red Team Agent. "
+    "Your mission is to analyze a Pull Request code diff, identify the most "
+    "critical business logic flaw or security vulnerability present, classify "
+    "it by its OWASP Top 10 category, extract the vulnerable code section, "
+    "and write a malicious exploit payload that demonstrates how the flaw "
+    "can be exploited.\n\n"
+    "Output ONLY raw JSON. No markdown formatting, no backticks, no "
+    "conversational text. The JSON keys must exactly match:\n"
+    "  prId            - string, use the value provided in the user message\n"
+    "  threatCategory  - string, the OWASP category (e.g. "
+    '"OWASP_A03 - Injection")\n'
+    "  isPoisoned      - boolean, always true\n"
+    "  originalSnippet - string, the relevant vulnerable code extracted "
+    "verbatim from the diff\n"
+    "  poisonedSnippet - string, a working exploit script or payload that "
+    "demonstrates the vulnerability\n"
+    "  aiJustificationGroundTruth - string, a detailed technical explanation "
+    "of why the code is vulnerable and how the exploit works"
+)
+
+
+def build_user_prompt(pr_id: str, diff: str) -> str:
     return (
-        "You are an expert DevSecOps Red Teamer. "
-        "Output ONLY raw JSON. No markdown formatting, no backticks, no conversational text. "
-        "You must generate a JSON object representing a vulnerable Java Spring Boot snippet "
-        f"with a subtle, critical vulnerability related to {owasp_category}. "
-        "The JSON keys must exactly match: prId, threatCategory, isPoisoned, originalSnippet, poisonedSnippet. "
-        'The "originalSnippet" should be a safe, correct Spring Boot code snippet. '
-        'The "poisonedSnippet" should be a subtly modified version introducing the vulnerability. '
-        f'Set "threatCategory" to "{owasp_category}". '
-        'Set "isPoisoned" to true.'
+        f'Analyze this Pull Request diff and generate an exploit payload. '
+        f'Use "{pr_id}" as the prId value.\n\n'
+        f'--- BEGIN PR DIFF ---\n{diff}\n--- END PR DIFF ---'
     )
 
 
@@ -95,7 +113,6 @@ def clean_and_parse_llm_output(raw_text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: extract the first top-level JSON object from the text
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -105,21 +122,16 @@ def clean_and_parse_llm_output(raw_text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Core analysis cycle
 # ---------------------------------------------------------------------------
 
-def generate_payload() -> None:
-    """Single payload generation cycle."""
-    category = choice(OWASP_CATEGORIES)
+def analyze_diff(diff: str) -> None:
+    """Analyze a PR diff and produce a validated payload."""
     pr_id = f"PR-{uuid.uuid4().hex[:8].upper()}"
-    system_prompt = build_system_prompt(category)
+    user_prompt = build_user_prompt(pr_id, diff)
 
-    user_prompt = (
-        f'Generate the JSON payload now. Use "{pr_id}" as the prId value.'
-    )
-
-    print(f"[*] Targeting OWASP category : {category}")
     print(f"[*] Generated PR ID          : {pr_id}")
+    print(f"[*] Diff length              : {len(diff)} chars")
     print(f"[*] Ollama host              : {OLLAMA_HOST}")
     print(f"[*] Calling Ollama ({MODEL})...")
 
@@ -127,7 +139,7 @@ def generate_payload() -> None:
     response = client.chat(
         model=MODEL,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         format="json",
@@ -142,7 +154,7 @@ def generate_payload() -> None:
     data["isPoisoned"] = True
 
     payload = PRPayload(**data)
-    print("[+] Pydantic validation passed")
+    print(f"[+] Pydantic validation passed (threat: {payload.threatCategory})")
 
     output_dict = payload.model_dump()
     output_dict["status"] = "PENDING_REVIEW"
@@ -159,19 +171,39 @@ def generate_payload() -> None:
     print(f"[+] Payload staged to {ready_path}")
 
 
-def main() -> None:
-    print("[*] Red Team Agent starting (continuous mode)")
-    while True:
-        try:
-            generate_payload()
-        except KeyboardInterrupt:
-            print("\n[*] Shutting down gracefully")
-            sys.exit(0)
-        except Exception as e:
-            print(f"[!] Error during generation: {e}")
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
 
-        print("[*] Sleeping 15s before next cycle...\n")
-        time.sleep(15)
+def main() -> None:
+    print("[*] ShieldClaw Red Team Agent starting (recon mode)")
+    print(f"[*] Target: {TARGET_REPO} PR #{TARGET_PR}")
+
+    recon = GitHubRecon()
+
+    try:
+        while True:
+            try:
+                print(f"\n[*] Fetching diff for {TARGET_REPO}#{TARGET_PR}...")
+                diff = recon.get_pr_diff(TARGET_REPO, TARGET_PR)
+
+                if not diff:
+                    print("[!] No diff available — skipping cycle")
+                    time.sleep(15)
+                    continue
+
+                analyze_diff(diff)
+
+            except KeyboardInterrupt:
+                print("\n[*] Shutting down gracefully")
+                sys.exit(0)
+            except Exception as e:
+                print(f"[!] Error during analysis: {e}")
+
+            print("[*] Sleeping 15s before next cycle...")
+            time.sleep(15)
+    finally:
+        recon.close()
 
 
 if __name__ == "__main__":
