@@ -10,4 +10,6 @@ export interface PullRequest {
 
 export interface TelemetryStats {
   statusCounts: Record<string, number>;
+  verifiedExploits: number;
+  failedExploits: number;
 }
