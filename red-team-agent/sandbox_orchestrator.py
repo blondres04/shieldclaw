@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 SANDBOX_IMAGE = "alpine:latest"
 SANDBOX_MEM_LIMIT = "128m"
 SANDBOX_TIMEOUT = 30
+# Applied to every sandbox container (Alpine or Compose-spawned) so sandbox_reaper.py can reap orphans.
+SANDBOX_CONTAINER_LABELS = {"shieldclaw-sandbox": "true"}
 _REPO_SLUG = re.compile(r"^[\w.-]+/[\w.-]+$")
 
 
@@ -50,6 +52,8 @@ class SandboxOrchestrator:
         ``cd`` there, then execute ``payload_snippet``.
 
         Launches an ``alpine:latest`` container with:
+          - **labels** ``shieldclaw-sandbox=true`` — for crash-safe cleanup via
+            ``sandbox_reaper.py`` (use the same label on Compose-based sandboxes).
           - **mem_limit=\"128m\"** — caps memory to prevent fork-bombs.
           - **timeout** (``SANDBOX_TIMEOUT`` seconds) — kills runaway payloads.
           - **remove=True** — container is destroyed on exit (no zombies).
@@ -106,6 +110,7 @@ class SandboxOrchestrator:
                 command=[shell_cmd],
                 detach=True,
                 mem_limit=SANDBOX_MEM_LIMIT,
+                labels=SANDBOX_CONTAINER_LABELS,
             )
 
             try:
