@@ -7,9 +7,10 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { API_BASE_URL } from "../config";
 import type { TelemetryStats } from "../types/Audit";
 
-const STATS_URL = "http://localhost:8080/api/v1/audit/stats";
+const STATS_URL = `${API_BASE_URL}/api/v1/audit/stats`;
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING_AUDIT: "#f1c40f",

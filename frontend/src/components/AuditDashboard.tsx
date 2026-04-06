@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import ReactDiffViewer from "react-diff-viewer-continued";
+import { API_BASE_URL } from "../config";
 import type { PullRequest } from "../types/Audit";
 import TelemetryChart from "./TelemetryChart";
 
@@ -9,7 +10,7 @@ const OWASP_CATEGORIES = [
   "SQL Injection",
 ] as const;
 
-const API_BASE = "http://localhost:8080/api/v1/audit";
+const API_BASE = `${API_BASE_URL}/api/v1/audit`;
 
 interface AuditDashboardProps {
   onUnauthorized: () => void;
