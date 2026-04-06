@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import AuditDashboard from "./components/AuditDashboard";
 import Login from "./components/Login";
+import { API_BASE_URL } from "./config";
 
 function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
 
   const checkSession = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:8080/api/v1/auth/me", {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
         credentials: "include",
       });
       setAuthed(res.ok);
@@ -21,7 +22,7 @@ function App() {
   }, [checkSession]);
 
   const handleLogout = useCallback(async () => {
-    await fetch("http://localhost:8080/api/v1/auth/logout", {
+    await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
       method: "POST",
       credentials: "include",
     });
