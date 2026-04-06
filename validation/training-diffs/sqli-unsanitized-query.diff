@@ -1,0 +1,20 @@
+diff --git a/validation/target-app/server.js b/validation/target-app/server.js
+index af1c4fd..891f839 100644
+--- a/validation/target-app/server.js
++++ b/validation/target-app/server.js
+@@ -35,14 +35,9 @@ app.get('/users', async (req, res) => {
+ });
+ 
+ app.get('/users/:id', async (req, res) => {
+-  const id = parseUserId(req.params.id);
+-  if (id === null) {
+-    return res.status(400).json({ error: 'Invalid user id' });
+-  }
+   try {
+     const result = await pool.query(
+-      'SELECT id, name, email FROM users WHERE id = $1',
+-      [id]
++      'SELECT id, name, email FROM users WHERE id = ' + req.params.id
+     );
+     if (result.rowCount === 0) {
+       return res.status(404).json({ error: 'User not found' });
