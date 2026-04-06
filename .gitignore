@@ -24,3 +24,8 @@ Thumbs.db
 node_modules/
 target/
 *.jar
+
+frontend/dist/
+**/__pycache__/
+**/.pytest_cache/
+red-team-agent/.env
