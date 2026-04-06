@@ -13,12 +13,19 @@ import java.util.Date;
 @Service
 public class JwtService {
 
-    private static final String BASE64_SECRET =
-            "VGhpc0lzQVN1cGVyU2VjcmV0S2V5Rm9yU2hpZWxkQ2xhd0pXVDIwMjYh";
-
     private static final long EXPIRATION_MS = 1000 * 60 * 60 * 8; // 8 hours
 
-    private final Key signingKey = Keys.hmacShaKeyFor(Base64.getDecoder().decode(BASE64_SECRET));
+    private final Key signingKey;
+
+    public JwtService() {
+        String base64Secret = System.getenv("JWT_SECRET");
+        if (base64Secret == null || base64Secret.isBlank()) {
+            throw new IllegalStateException(
+                    "JWT_SECRET environment variable must be set to a Base64-encoded signing key (minimum 256 bits after decoding)");
+        }
+        byte[] keyBytes = Base64.getDecoder().decode(base64Secret);
+        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+    }
 
     public String generateToken(String username) {
         return Jwts.builder()
