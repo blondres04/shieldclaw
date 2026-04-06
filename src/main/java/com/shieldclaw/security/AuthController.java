@@ -2,7 +2,7 @@ package com.shieldclaw.security;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,22 +15,30 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@RequiredArgsConstructor
 public class AuthController {
 
-    private static final String HARDCODED_USERNAME = "auditor";
-    private static final String HARDCODED_PASSWORD = "secure2026";
     private static final String COOKIE_NAME = "jwt";
     private static final int MAX_AGE_SECONDS = 8 * 60 * 60; // 8 hours
 
+    private final String adminUsername;
+    private final String adminPassword;
     private final JwtService jwtService;
+
+    public AuthController(
+            JwtService jwtService,
+            @Value("${SHIELDCLAW_ADMIN_USERNAME}") String adminUsername,
+            @Value("${SHIELDCLAW_ADMIN_PASSWORD}") String adminPassword) {
+        this.jwtService = jwtService;
+        this.adminUsername = adminUsername;
+        this.adminPassword = adminPassword;
+    }
 
     @PostMapping("/login")
     public ResponseEntity<?> login(
             @RequestBody LoginRequest request,
             HttpServletResponse response) {
-        if (HARDCODED_USERNAME.equals(request.username())
-                && HARDCODED_PASSWORD.equals(request.password())) {
+        if (adminUsername.equals(request.username())
+                && adminPassword.equals(request.password())) {
             String token = jwtService.generateToken(request.username());
 
             Cookie cookie = new Cookie(COOKIE_NAME, token);
