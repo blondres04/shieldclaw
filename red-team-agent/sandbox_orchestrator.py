@@ -9,6 +9,7 @@ import re
 
 import docker
 import docker.errors
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +51,16 @@ class SandboxOrchestrator:
 
         Launches an ``alpine:latest`` container with:
           - **mem_limit=\"128m\"** — caps memory to prevent fork-bombs.
+          - **timeout** (``SANDBOX_TIMEOUT`` seconds) — kills runaway payloads.
           - **remove=True** — container is destroyed on exit (no zombies).
           - Default Docker bridge network — required for ``apk`` and
             ``git clone`` (not air-gapped).
 
-        If ``containers.run`` completes without raising
-        ``docker.errors.ContainerError``, the exploit is considered
-        empirically verified (the code executed successfully).
+        Uses ``containers.run(..., detach=True)`` then
+        ``container.wait(timeout=SANDBOX_TIMEOUT)`` — docker-py's ``run()`` has
+        no execution-duration ``timeout`` parameter; the cap is enforced on
+        ``wait``. If the main process exits zero within that window, the exploit
+        is considered empirically verified.
 
         Args:
             pr_repo: GitHub repository slug (e.g. ``"owner/repo"``).
@@ -96,15 +100,55 @@ class SandboxOrchestrator:
         )
 
         try:
-            output = self.client.containers.run(
+            container = self.client.containers.run(
                 image=SANDBOX_IMAGE,
                 entrypoint=["/bin/sh", "-c"],
                 command=[shell_cmd],
-                remove=True,
+                detach=True,
                 mem_limit=SANDBOX_MEM_LIMIT,
-                stdout=True,
-                stderr=True,
             )
+
+            try:
+                wait_result = container.wait(timeout=SANDBOX_TIMEOUT)
+            except (
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+            ):
+                logger.warning(
+                    "[sandbox] Payload for %s#%d timed out after %ds — "
+                    "exploit FAILED",
+                    pr_repo,
+                    pr_number,
+                    SANDBOX_TIMEOUT,
+                )
+                try:
+                    container.kill()
+                except docker.errors.APIError:
+                    pass
+                try:
+                    container.remove()
+                except docker.errors.APIError:
+                    pass
+                return False
+
+            exit_status = wait_result["StatusCode"]
+            output = container.logs(stdout=True, stderr=True)
+            try:
+                container.remove()
+            except docker.errors.APIError:
+                pass
+
+            if exit_status != 0:
+                err_text = output.decode("utf-8", errors="replace").strip()
+                logger.warning(
+                    "[sandbox] Payload for %s#%d exited non-zero "
+                    "(code %s) — exploit FAILED: %s",
+                    pr_repo,
+                    pr_number,
+                    exit_status,
+                    err_text or "(no stderr)",
+                )
+                return False
 
             decoded = output.decode("utf-8", errors="replace").strip()
             if decoded:
@@ -117,19 +161,6 @@ class SandboxOrchestrator:
                 pr_number,
             )
             return True
-
-        except docker.errors.ContainerError as exc:
-            logger.warning(
-                "[sandbox] Payload for %s#%d exited non-zero "
-                "(code %s) — exploit FAILED: %s",
-                pr_repo,
-                pr_number,
-                exc.exit_status,
-                exc.stderr.decode("utf-8", errors="replace").strip()
-                if exc.stderr
-                else "(no stderr)",
-            )
-            return False
 
         except docker.errors.ImageNotFound:
             logger.error(
