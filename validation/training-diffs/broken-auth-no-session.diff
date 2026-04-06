@@ -1,0 +1,28 @@
+diff --git a/validation/target-app/server.js b/validation/target-app/server.js
+index af1c4fd..33f2fe3 100644
+--- a/validation/target-app/server.js
++++ b/validation/target-app/server.js
+@@ -101,6 +101,23 @@ app.delete('/users/:id', async (req, res) => {
+   }
+ });
+ 
++app.delete('/admin/users/:id', async (req, res) => {
++  const id = parseUserId(req.params.id);
++  if (id === null) {
++    return res.status(400).json({ error: 'Invalid user id' });
++  }
++  try {
++    const result = await pool.query('DELETE FROM users WHERE id = $1', [id]);
++    if (result.rowCount === 0) {
++      return res.status(404).json({ error: 'User not found' });
++    }
++    res.status(204).send();
++  } catch (err) {
++    console.error('DELETE /admin/users/:id failed:', err);
++    res.status(500).json({ error: 'Database error' });
++  }
++});
++
+ const port = Number(process.env.PORT) || 3000;
+ app.listen(port, '0.0.0.0', () => {
+   console.log(`target-app listening on port ${port}`);
