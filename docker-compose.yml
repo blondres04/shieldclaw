@@ -58,6 +58,7 @@ services:
     ports:
       - "5173:80"
 
+  # Cron (host or sidecar): */5 * * * * cd /path/to/red-team-agent && python sandbox_reaper.py
   red-team-agent:
     build:
       context: ./red-team-agent
