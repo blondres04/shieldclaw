@@ -42,6 +42,8 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
       PAYLOAD_DIRECTORY: /app/payloads
       JWT_SECRET: Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24tYmFzZTY0LXNlY3JldC1hdC1sZWFzdC0zMi1ieXRlcw==
+      SHIELDCLAW_ADMIN_USERNAME: auditor
+      SHIELDCLAW_ADMIN_PASSWORD: secure2026
     volumes:
       - shared-payloads:/app/payloads
     depends_on:
