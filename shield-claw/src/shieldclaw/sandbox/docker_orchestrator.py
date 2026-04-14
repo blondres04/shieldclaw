@@ -64,15 +64,19 @@ class DockerOrchestrator:
         *,
         start_wait_seconds: float = _START_WAIT_SECONDS,
         start_poll_interval: float = _START_POLL_INTERVAL,
+        post_up_grace_seconds: float = 10.0,
     ) -> None:
         """Create an orchestrator with configurable startup polling.
 
         Args:
             start_wait_seconds: Maximum time to wait for compose services after ``up``.
             start_poll_interval: Sleep interval between readiness probes.
+            post_up_grace_seconds: Extra sleep after every service reports running so
+                application processes (e.g. Flask + Postgres) can finish booting.
         """
         self._start_wait = start_wait_seconds
         self._poll_interval = start_poll_interval
+        self._post_up_grace = post_up_grace_seconds
 
     def start_sandbox(self, compose_path: str, result_id: str) -> None:
         """Bring up a compose project, label its containers, and wait until healthy.
@@ -102,6 +106,8 @@ class DockerOrchestrator:
             error_prefix="docker compose up failed",
         )
         self._wait_for_compose_ready(compose_file, override, project, cwd)
+        if self._post_up_grace > 0:
+            time.sleep(self._post_up_grace)
 
     def detonate(
         self,

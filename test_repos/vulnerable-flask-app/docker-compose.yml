@@ -1,8 +1,20 @@
 services:
   web:
     build: .
-    ports:
-      - "5000:5000"
+    # No host ports: exploit runs on the compose network and uses http://web:5000.
+    # Publishing 5000:5000 breaks CI and local runs when the host port is taken.
+    expose:
+      - "5000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/user?id=1'); print('ok')\"",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     environment:
       POSTGRES_HOST: db
       POSTGRES_DB: testdb

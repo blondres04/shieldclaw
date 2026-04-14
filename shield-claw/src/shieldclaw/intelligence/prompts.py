@@ -22,11 +22,15 @@ The JSON object MUST have exactly these fields:
 
 Rules for the exploit script:
 - Generate the exploit as a single Python 3 script. Do not use bash, curl, or any other language.
+- Include every import you use at the top of the script. The first two lines of the script body must be ``import sys`` then ``import requests`` (in that order), followed by any other imports.
+- The script runs standalone (no Flask/Django and no web framework request object). Build HTTP URLs and query parameters with plain Python strings only; call requests.get with a literal dict passed to the params= keyword for query strings.
+- Never call input() or read from stdin; the exploit must be fully non-interactive with hard-coded probe values.
 - The script will execute in a python:3.11-slim container with requests and urllib3 pre-installed.
 - Use the target_dns as the hostname (e.g., http://web:5000).
-- The script MUST exit with code 0 if the exploit succeeds (vulnerability confirmed).
-- The script MUST exit with a non-zero code if the exploit fails (not vulnerable).
-- Do not import libraries beyond requests, urllib3, json, sys, os, socket, http.client.
+- When probing SQL injection over HTTP, prefer short boolean tautology payloads (for example numeric OR 1=1 fragments) that keep the resulting server-side SQL syntactically valid for PostgreSQL, instead of destructive multi-statement attempts.
+- The script MUST call sys.exit(0) if the exploit succeeds (vulnerability confirmed).
+- The script MUST call sys.exit with a non-zero code if the exploit fails (not vulnerable). Always use sys.exit, not the site module exit alias.
+- Do not import third-party libraries beyond requests and urllib3. Standard-library modules such as json, sys, os, socket, http.client, and urllib.parse are allowed.
 - Keep the script under 100 lines.
 """
 

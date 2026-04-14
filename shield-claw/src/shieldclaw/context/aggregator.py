@@ -113,6 +113,18 @@ class ContextAggregator:
                 return path.read_text(encoding="utf-8")
             except OSError as exc:
                 raise AggregationError(f"Unable to read diff file {path}.") from exc
+
+        if not (root / ".git").is_dir():
+            for filename in ("context.patch", "shieldclaw.context.patch"):
+                candidate = root / filename
+                if candidate.is_file():
+                    try:
+                        return candidate.read_text(encoding="utf-8")
+                    except OSError as exc:
+                        raise AggregationError(
+                            f"Unable to read diff fallback file {candidate}."
+                        ) from exc
+
         return self._git_diff_head_minus_one(root)
 
     def _git_diff_head_minus_one(self, root: Path) -> str:

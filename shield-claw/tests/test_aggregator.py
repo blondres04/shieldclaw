@@ -98,6 +98,32 @@ def test_git_diff_requires_repository(tmp_path) -> None:
     assert "git" in str(excinfo.value).lower()
 
 
+def test_aggregate_context_patch_when_not_git_repo(tmp_path) -> None:
+    """Lab targets without ``.git`` may ship ``context.patch`` as the diff source."""
+    root = tmp_path / "lab-target"
+    root.mkdir()
+    (root / "docker-compose.yml").write_text(
+        "services:\n  web:\n    image: nginx\n",
+        encoding="utf-8",
+    )
+    (root / "context.patch").write_text(
+        textwrap.dedent(
+            """\
+            diff --git a/app.py b/app.py
+            --- a/app.py
+            +++ b/app.py
+            @@ -0,0 +1 @@
+            +print("lab")
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    context = ContextAggregator().aggregate(str(root), None)
+    assert "diff --git" in context.git_diff_content
+    assert "lab" in context.git_diff_content
+
+
 @pytest.mark.skipif(not _git_available(), reason="git executable not available")
 def test_git_diff_head_minus_one(tmp_path) -> None:
     """Two commits should yield a non-empty diff via ``HEAD~1``."""

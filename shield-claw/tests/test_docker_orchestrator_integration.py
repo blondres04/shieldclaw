@@ -87,7 +87,11 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
     if build.returncode != 0:
         pytest.skip(f"docker compose build failed: {build.stderr}")
 
-    orchestrator = DockerOrchestrator(start_wait_seconds=120.0, start_poll_interval=2.0)
+    orchestrator = DockerOrchestrator(
+        start_wait_seconds=120.0,
+        start_poll_interval=2.0,
+        post_up_grace_seconds=0.0,
+    )
     orchestrator.start_sandbox(str(integration_compose), result_id)
     try:
         time.sleep(5.0)

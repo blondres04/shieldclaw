@@ -18,7 +18,7 @@ _LOG = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "http://localhost:11434"
 _DEFAULT_MODEL = "gemma3:4b"
-_TIMEOUT_SECONDS = 60.0
+_TIMEOUT_SECONDS = 120.0
 
 
 class OllamaProvider(LLMProvider):

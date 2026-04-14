@@ -1,0 +1,18 @@
+diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -25,10 +25,11 @@ app = Flask(__name__)
+ @app.get("/user")
+ def user() -> Response:
+     conn = _connect()
+     try:
+         cur = conn.cursor(cursor_factory=RealDictCursor)
+-        query = "SELECT * FROM users WHERE id = %s"
+-        cur.execute(query, (request.args.get("id", "1"),))
++        # Intentionally unsafe string interpolation to demonstrate SQL injection.
++        query = f"SELECT * FROM users WHERE id = {request.args['id']}"
++        cur.execute(query)
+         rows = cur.fetchall()
+         return jsonify([dict(row) for row in rows])
+     finally:
+         conn.close()

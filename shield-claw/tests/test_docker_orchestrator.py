@@ -74,7 +74,11 @@ def test_start_sandbox_invokes_compose_up(mocker: MockerFixture, tmp_path: Path)
 
     mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", side_effect=fake_run)
 
-    orch = DockerOrchestrator(start_wait_seconds=1.0, start_poll_interval=0.01)
+    orch = DockerOrchestrator(
+        start_wait_seconds=1.0,
+        start_poll_interval=0.01,
+        post_up_grace_seconds=0.0,
+    )
     orch.start_sandbox(str(compose), result_id)
 
     assert any(c[:2] == ["docker", "compose"] and c[-2:] == ["up", "-d"] for c in calls)
