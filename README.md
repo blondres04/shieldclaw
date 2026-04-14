@@ -152,7 +152,7 @@ JSON is written to **stdout** unless `--output` is set. The field `is_vulnerable
 
 ## Security considerations
 
-- **Exploit execution** runs LLM-authored Python inside a **hardened** Docker container (`--read-only`, non-root user, memory/CPU/pid limits, tmpfs for `/tmp`). The runtime runs `pip install --target /tmp/pylib` before your script so `requests` is available without a pre-baked image; that needs **outbound HTTPS to PyPI** (or a reachable mirror) from the attacker container. That materially reduces risk compared to running the same code on the host, but it does **not** reduce the risk to zero: **kernel-level container escape bugs** remain a residual threat class.
+- **Exploit execution** runs LLM-authored Python inside a **hardened** Docker container (`--read-only`, non-root user, memory/CPU/pid limits, tmpfs for `/tmp`). The runtime runs `pip install --target /tmp/pylib` before your script so `requests` is available without a pre-baked image; that needs **outbound HTTPS to PyPI** (or a reachable mirror) from the attacker container. That materially reduces risk compared to running the same code on the host, but it does **not** reduce the risk to zero: **kernel-level container escape bugs** remain a residual threat class. See [ADR-005](shield-claw/docs/adrs/005-attacker-container-pypi-access.md) for the design record and trade-offs.
 - **Compose-backed targets** run on the same Docker daemon as your workstation. Only scan code you trust enough to run as containers on your machine.
 - **Cloud LLM providers** receive the **git diff** (and `docker-compose.yml` content) you pass into the model. Treat that as **sensitive source code exposure** to a third party unless you keep inference entirely local (e.g. Ollama).
 
