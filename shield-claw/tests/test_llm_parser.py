@@ -27,6 +27,14 @@ def test_parse_valid_json_plain() -> None:
     assert payload.execution_command == "python3 /exploit/exploit.py"
 
 
+def test_parse_normalizes_host_port_target_dns() -> None:
+    """Models sometimes emit ``service:port``; keep only the Compose service name."""
+    data = {**_VALID_PAYLOAD, "target_dns": "web:5000"}
+    raw = json.dumps(data)
+    payload = parse_llm_response(raw)
+    assert payload.target_dns == "web"
+
+
 def test_parse_json_wrapped_in_markdown_fence() -> None:
     """Markdown fences must be stripped before JSON parsing."""
     inner = json.dumps(_VALID_PAYLOAD)

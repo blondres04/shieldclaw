@@ -84,6 +84,20 @@ def _strip_markdown_fences(raw: str) -> str:
     return text[start : end + 1]
 
 
+def _normalize_compose_service_name(value: str) -> str:
+    """Strip a trailing ``:port`` suffix when models confuse DNS with host:port pairs.
+
+    Docker Compose DNS names are service identifiers (for example ``web``), not
+    ``web:5000``. Numeric ports after the final colon are removed defensively.
+    """
+    stripped = value.strip()
+    if ":" in stripped:
+        host, _, maybe_port = stripped.rpartition(":")
+        if maybe_port.isdigit() and host:
+            return host
+    return stripped
+
+
 def _coerce_payload_fields(data: dict[str, Any]) -> dict[str, str]:
     """Validate JSON object shape and normalize all required string fields.
 
@@ -129,6 +143,7 @@ def parse_llm_response(raw: str) -> ExploitPayload:
         raise LLMResponseError("Model JSON must be an object at the top level.")
 
     fields = _coerce_payload_fields(parsed)
+    fields["target_dns"] = _normalize_compose_service_name(fields["target_dns"])
     payload_id = uuid.uuid4()
     return ExploitPayload(
         payload_id=payload_id,

@@ -15,7 +15,7 @@ You MUST respond with ONLY a JSON object. No markdown, no explanation, no preamb
 The JSON object MUST have exactly these fields:
 {
   "language": "python",
-  "target_dns": "<the Docker Compose service name to attack, e.g. 'web'>",
+  "target_dns": "<ONLY the Docker Compose service hostname, e.g. web — never include a port>",
   "raw_code": "<a complete Python 3 script that attempts to exploit the vulnerability>",
   "execution_command": "python3 /exploit/exploit.py"
 }
