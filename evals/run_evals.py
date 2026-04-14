@@ -129,7 +129,7 @@ def main() -> int:
     for o in outcomes:
         status = "PASS" if o.passed else "FAIL"
         exp = "vuln" if o.expected_vulnerable else "safe"
-        print(f"  [{status}] {o.case_id} ({exp}, {o.label}) {o.seconds:.2f}s — {o.name}")
+        print(f"  [{status}] {o.case_id} ({exp}, {o.label}) {o.seconds:.2f}s - {o.name}")
     return 0
 
 
