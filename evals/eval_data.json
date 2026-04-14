@@ -1,0 +1,62 @@
+[
+  {
+    "id": "sqli-concat-01",
+    "name": "SQL string concatenation",
+    "expected_vulnerable": true,
+    "diff_content": "diff --git a/db.py b/db.py\n--- a/db.py\n+++ b/db.py\n@@ -1,3 +1,3 @@\n def lookup(user_id):\n-    return \"safe\"\n+    q = f\"SELECT * FROM users WHERE id = {user_id}\"\n+    return cursor.execute(q)\n"
+  },
+  {
+    "id": "ssrf-01",
+    "name": "SSRF via requests with user URL",
+    "expected_vulnerable": true,
+    "diff_content": "diff --git a/fetch.py b/fetch.py\n--- a/fetch.py\n+++ b/fetch.py\n@@ -1,2 +1,3 @@\n+def load(url):\n+    return requests.get(url).text\n"
+  },
+  {
+    "id": "path-trav-01",
+    "name": "Path traversal open",
+    "expected_vulnerable": true,
+    "diff_content": "diff --git a/files.py b/files.py\n--- a/files.py\n+++ b/files.py\n@@ -1,2 +1,3 @@\n+def read(name):\n+    return open(\"/data/\" + name).read()\n"
+  },
+  {
+    "id": "xss-01",
+    "name": "Unescaped string interpolation in HTML",
+    "expected_vulnerable": true,
+    "diff_content": "diff --git a/views.py b/views.py\n--- a/views.py\n+++ b/views.py\n@@ -1,2 +1,3 @@\n+def user_page(u):\n+    return \"<div>\" + u + \"</div>\"\n"
+  },
+  {
+    "id": "cmd-inject-01",
+    "name": "Command injection os.system",
+    "expected_vulnerable": true,
+    "diff_content": "diff --git a/admin.py b/admin.py\n--- a/admin.py\n+++ b/admin.py\n@@ -1,2 +1,3 @@\n+def ping(host):\n+    os.system(\"ping \" + host)\n"
+  },
+  {
+    "id": "sqli-safe-01",
+    "name": "Parameterized SQL",
+    "expected_vulnerable": false,
+    "diff_content": "diff --git a/db.py b/db.py\n--- a/db.py\n+++ b/db.py\n@@ -1,3 +1,4 @@\n def lookup(user_id):\n-    return \"safe\"\n+    q = \"SELECT * FROM users WHERE id = ?\"\n+    return cursor.execute(q, (user_id,))\n"
+  },
+  {
+    "id": "ssrf-safe-01",
+    "name": "SSRF allowlisted hosts",
+    "expected_vulnerable": false,
+    "diff_content": "diff --git a/fetch.py b/fetch.py\n--- a/fetch.py\n+++ b/fetch.py\n@@ -1,2 +1,8 @@\n+ALLOW = {\"api.example.com\"}\n+def load(url):\n+    from urllib.parse import urlparse\n+    if urlparse(url).hostname not in ALLOW:\n+        raise ValueError(\"blocked\")\n+    return requests.get(url, timeout=5).text\n"
+  },
+  {
+    "id": "path-safe-01",
+    "name": "Path basename guard",
+    "expected_vulnerable": false,
+    "diff_content": "diff --git a/files.py b/files.py\n--- a/files.py\n+++ b/files.py\n@@ -1,2 +1,5 @@\n+import os\n def read(name):\n-    pass\n+    base = \"/data\"\n+    safe = os.path.basename(name)\n+    return open(os.path.join(base, safe)).read()\n"
+  },
+  {
+    "id": "xss-safe-01",
+    "name": "Escaped HTML output",
+    "expected_vulnerable": false,
+    "diff_content": "diff --git a/views.py b/views.py\n--- a/views.py\n+++ b/views.py\n@@ -1,2 +1,4 @@\n+import html\n def user_page(u):\n-    pass\n+    return \"<div>\" + html.escape(u) + \"</div>\"\n"
+  },
+  {
+    "id": "cmd-safe-01",
+    "name": "Subprocess list without shell",
+    "expected_vulnerable": false,
+    "diff_content": "diff --git a/admin.py b/admin.py\n--- a/admin.py\n+++ b/admin.py\n@@ -1,2 +1,4 @@\n+import subprocess\n def ping(host):\n-    pass\n+    return subprocess.run([\"ping\", \"-c\", \"1\", host], capture_output=True, text=True)\n"
+  }
+]
