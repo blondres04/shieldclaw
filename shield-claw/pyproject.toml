@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shieldclaw"
+version = "0.1.0"
+description = "ShieldClaw security scanning and validation pipeline"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "ShieldClaw Contributors" }]
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-mock>=3.14"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
