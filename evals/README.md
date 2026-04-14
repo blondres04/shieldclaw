@@ -2,6 +2,8 @@
 
 This folder exercises `OllamaProvider` and the exploit JSON parser against synthetic diffs **without Docker**. It is safe to run on a laptop with only Ollama available.
 
+For the **documented portfolio baseline** (e.g. `gemma3:4b` accuracy range and production guidance), see the root [`README.md`](../README.md) section *Known limitations (v1)*.
+
 ## Prerequisites
 
 - Python 3.11+

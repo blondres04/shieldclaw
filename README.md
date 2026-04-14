@@ -152,7 +152,8 @@ JSON is written to **stdout** unless `--output` is set. The field `is_vulnerable
 
 ## Security considerations
 
-- **Exploit execution** runs LLM-authored Python inside a **hardened** Docker container (`--read-only`, non-root user, memory/CPU/pid limits, tmpfs for `/tmp`). The runtime runs `pip install --target /tmp/pylib` before your script so `requests` is available without a pre-baked image; that needs **outbound HTTPS to PyPI** (or a reachable mirror) from the attacker container. That materially reduces risk compared to running the same code on the host, but it does **not** reduce the risk to zero: **kernel-level container escape bugs** remain a residual threat class. See [ADR-005](shield-claw/docs/adrs/005-attacker-container-pypi-access.md) for the design record and trade-offs.
+- **Exploit execution** runs LLM-authored Python inside a **hardened** Docker container (`--read-only`, non-root user, memory/CPU/pid limits, tmpfs for `/tmp`). That materially reduces risk compared to running the same code on the host, but it does **not** reduce the risk to zero: **kernel-level container escape bugs** remain a residual threat class.
+- **Attacker container network access:** During detonation, the attacker container runs `pip install requests` to bootstrap HTTP capabilities. This grants the container outbound internet access to PyPI. In a future version, a pre-built attacker image with dependencies baked in will eliminate this trust boundary. See [ADR-005](shield-claw/docs/adrs/005-attacker-container-pypi-access.md) for the full trade-off analysis. (The implementation uses `pip install --target /tmp/pylib` so `requests`/`urllib3` install without a writable system site-packages tree; the trust boundary is the same.)
 - **Compose-backed targets** run on the same Docker daemon as your workstation. Only scan code you trust enough to run as containers on your machine.
 - **Cloud LLM providers** receive the **git diff** (and `docker-compose.yml` content) you pass into the model. Treat that as **sensitive source code exposure** to a third party unless you keep inference entirely local (e.g. Ollama).
 
@@ -164,7 +165,10 @@ JSON is written to **stdout** unless `--output` is set. The field `is_vulnerable
 - **Target layout:** the scan expects a `docker-compose.yml` (or `.yaml`) at the repository root (the same layout the CLI validates).  
 - **No built-in CI/CD** integration; operators run the CLI manually or wrap it in their own pipelines.  
 - **Exploit payloads** are **Python-only** as generated and validated today.  
+- **Eval accuracy on sub-10B local models is 60–70%;** larger models or cloud providers are recommended for production use.
 - **LLM quality** varies by model and prompt; see [`evals/README.md`](./evals/README.md) for an offline harness.
+
+**LLM accuracy baseline:** On `gemma3:4b` (4B parameters, local via Ollama), the eval harness reports **60–70% accuracy** across 10 synthetic test cases. Common failure modes include generating syntactically invalid exploits and false-positive payloads for secure code. Accuracy improves with larger models. Prompt hardening and model selection are the primary levers for improvement — see [`evals/README.md`](./evals/README.md) for methodology and how to iterate.
 
 ---
 
