@@ -18,42 +18,6 @@ class ContainerStatus(Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ScanResult:
-    """Outcome metadata for a completed or failed scan pipeline run.
-
-    Args:
-        result_id: Unique identifier for this scan result record.
-        exit_code: Process exit code from the scan runner, if applicable.
-        is_vulnerable: Whether the scan classified the change as exploitable.
-        pipeline_error: Human-readable error when the pipeline failed.
-        duration_seconds: Wall-clock duration of the scan in seconds.
-    """
-
-    result_id: UUID
-    exit_code: int | None = None
-    is_vulnerable: bool | None = None
-    pipeline_error: str | None = None
-    duration_seconds: float | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ScanContext:
-    """Immutable inputs gathered before analysis and sandbox execution.
-
-    Args:
-        target_dir: Filesystem path to the repository under test.
-        git_diff_content: Unified diff text describing proposed changes.
-        docker_compose_content: Compose file content used to model services.
-        timestamp: When the context snapshot was captured.
-    """
-
-    target_dir: str
-    git_diff_content: str
-    docker_compose_content: str
-    timestamp: datetime
-
-
-@dataclass(frozen=True, slots=True)
 class ExploitPayload:
     """Executable exploit artifact produced for validation in isolation.
 
@@ -85,3 +49,43 @@ class ContainerState:
     status: ContainerStatus
     attacker_container_id: str | None = None
     startup_logs: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanResult:
+    """Outcome metadata for a completed or failed scan pipeline run.
+
+    Args:
+        result_id: Unique identifier for this scan result record.
+        exit_code: Process exit code from the scan runner, if applicable.
+        is_vulnerable: Whether the scan classified the change as exploitable.
+        pipeline_error: Human-readable error when the pipeline failed.
+        duration_seconds: Wall-clock duration of the scan in seconds.
+        exploit_payload: Generated exploit metadata when the LLM stage succeeded.
+        container_state: Sandbox container snapshot after execution when available.
+    """
+
+    result_id: UUID
+    exit_code: int | None = None
+    is_vulnerable: bool | None = None
+    pipeline_error: str | None = None
+    duration_seconds: float | None = None
+    exploit_payload: ExploitPayload | None = None
+    container_state: ContainerState | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanContext:
+    """Immutable inputs gathered before analysis and sandbox execution.
+
+    Args:
+        target_dir: Filesystem path to the repository under test.
+        git_diff_content: Unified diff text describing proposed changes.
+        docker_compose_content: Compose file content used to model services.
+        timestamp: When the context snapshot was captured.
+    """
+
+    target_dir: str
+    git_diff_content: str
+    docker_compose_content: str
+    timestamp: datetime
