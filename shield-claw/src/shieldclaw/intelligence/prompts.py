@@ -25,8 +25,8 @@ Rules for the exploit script:
 - Include every import you use at the top of the script. The first two lines of the script body must be ``import sys`` then ``import requests`` (in that order), followed by any other imports.
 - The script runs standalone (no Flask/Django and no web framework request object). Build HTTP URLs and query parameters with plain Python strings only; call requests.get with a literal dict passed to the params= keyword for query strings.
 - Never call input() or read from stdin; the exploit must be fully non-interactive with hard-coded probe values.
-- The script will execute in a python:3.11-slim container with requests and urllib3 pre-installed.
-- Use the target_dns as the hostname (e.g., http://web:5000).
+- The script will execute in a python:3.11-slim container; the runtime installs requests and urllib3 via pip immediately before your code runs (requires outbound access to the package index from the attacker container).
+- Use the target_dns as the hostname inside the URL. Always include the container listen port (for example ``http://web:5000`` when the compose file exposes port 5000 for the web service). Never use ``http://web/`` without a port when the application listens on a non-80 port.
 - When probing SQL injection over HTTP, prefer short boolean tautology payloads (for example numeric OR 1=1 fragments) that keep the resulting server-side SQL syntactically valid for PostgreSQL, instead of destructive multi-statement attempts.
 - The script MUST call sys.exit(0) if the exploit succeeds (vulnerability confirmed).
 - The script MUST call sys.exit with a non-zero code if the exploit fails (not vulnerable). Always use sys.exit, not the site module exit alias.

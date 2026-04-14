@@ -25,6 +25,21 @@ _START_POLL_INTERVAL = 2.0
 _START_WAIT_SECONDS = 60.0
 _DETONATE_IMAGE = "python:3.11-slim"
 
+# ``python:3.11-slim`` does not ship with ``requests``. The attacker runs as UID 1000 with a
+# read-only rootfs, so dependencies are installed with ``pip --target`` under ``/tmp``.
+_DETONATE_BOOTSTRAP = (
+    "import os, subprocess, sys;"
+    "os.makedirs('/tmp/pylib', exist_ok=True);"
+    "subprocess.check_call("
+    "[sys.executable, '-m', 'pip', 'install', '-q', '--disable-pip-version-check', "
+    "'--target', '/tmp/pylib', 'requests', 'urllib3'],"
+    "stdout=subprocess.DEVNULL,"
+    ");"
+    "sys.path.insert(0, '/tmp/pylib');"
+    "code = sys.stdin.read();"
+    "exec(compile(code, '<exploit>', 'exec'))"
+)
+
 
 def compose_project_name(result_id: str) -> str:
     """Return a deterministic Compose project slug derived from ``result_id``.
@@ -153,7 +168,8 @@ class DockerOrchestrator:
             "PYTHONDONTWRITEBYTECODE=1",
             _DETONATE_IMAGE,
             "python",
-            "-",
+            "-c",
+            _DETONATE_BOOTSTRAP,
         ]
         _LOG.debug("Running command: %s", cmd)
         try:
@@ -180,6 +196,14 @@ class DockerOrchestrator:
         if completed.returncode != 0 and self._looks_like_docker_client_error(completed.stdout):
             detail = (completed.stdout or "").strip()
             raise DetonationError(f"Failed to start attacker container: {detail}")
+
+        if completed.returncode != 0:
+            _LOG.info(
+                "Exploit container exited %s; stdout=%r stderr=%r",
+                completed.returncode,
+                (completed.stdout or "")[:4000],
+                (completed.stderr or "")[:4000],
+            )
 
         return int(completed.returncode)
 
