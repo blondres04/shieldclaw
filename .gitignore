@@ -29,3 +29,23 @@ frontend/dist/
 **/__pycache__/
 **/.pytest_cache/
 red-team-agent/.env
+
+# Build / generated artifacts
+/docs/
+
+# AI agent working files — never reach the remote repo
+ai/
+.ai/
+.claude/
+.cursor/scratch/
+research/
+plans/
+**/RESEARCH.md
+**/PLAN.md
+**/COMPACTION.md
+**/SCRATCH.md
+**/*-research.md
+**/*-plan.md
+**/*-compaction.md
+*.tmp.md
+*.scratch.md

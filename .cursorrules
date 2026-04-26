@@ -1,0 +1,185 @@
+# .cursorrules — Shield Claw V1 Harness Configuration
+
+## Required Reading at Session Start
+
+Before performing any task, read the following documents:
+1. ./harness-engineering.md — the harness framework that governs this codebase
+2. The CONTEXT.md file in any directory you will modify
+3. The header of any file you will modify or call
+
+If you cannot find any of these files, halt and ask the user.
+
+---
+
+## Architecture
+
+Primary pattern: Pipe and Filter (Linear CLI Pipeline)
+Secondary pattern: Strategy (LLM provider selection in `intelligence/`)
+
+Shield Claw drives a linear four-stage pipeline:
+  1. Context Aggregation  →  `context/aggregator.py`       reads git diff + compose file
+  2. Exploit Generation   →  `intelligence/`               sends context to an LLM, returns ExploitPayload
+  3. Detonation           →  `sandbox/docker_orchestrator.py`  runs the exploit in a hardened container
+  4. Reporting            →  `reporting/builder.py`        emits the structured JSON result
+
+The architecture forbids:
+- Cross-pipe-stage imports: `context/`, `intelligence/`, `sandbox/`, and `reporting/` are siblings.
+  A file in one stage NEVER imports from another stage.
+- Bypassing the orchestrator: `__main__.py` NEVER imports from any feature module directly.
+  All pipeline calls go through `orchestrator.py`.
+- Leaf-node imports: `models.py` and `exceptions.py` NEVER import from any `shieldclaw.*` submodule.
+
+`tests/test_architecture.py` enforces cross-feature isolation via AST analysis on every test run.
+Do not bypass that test.
+
+---
+
+## Dependency Direction
+
+Dependencies flow inward only:
+
+  __main__.py  →  orchestrator.py  →  {context/, intelligence/, sandbox/, reporting/}
+                                    →  models.py, exceptions.py
+
+Rule 1: A feature module (context, intelligence, sandbox, reporting) NEVER imports from
+        another feature module.
+Rule 2: A feature module NEVER imports from `orchestrator.py` or `__main__.py`.
+Rule 3: `models.py` and `exceptions.py` NEVER import from any `shieldclaw.*` submodule.
+
+Violation of dependency direction is a structural defect, not a style preference.
+
+---
+
+## BCE Mapping (Boundary–Control–Entity) for This CLI Pipeline
+
+  <<boundary>>    →  __main__.py                (CLI argument parsing and stdout/file I/O)
+  <<control>>     →  orchestrator.py            (pipeline state machine)
+  <<pipe stage>>  →  context/, intelligence/, sandbox/, reporting/
+  <<entity>>      →  models.py, exceptions.py   (shared data objects, zero internal imports)
+
+The Iron Rule: `__main__.py` NEVER calls feature modules directly. `__main__.py` calls
+`orchestrator.py` only. Pipeline orchestration is the orchestrator's exclusive domain.
+
+---
+
+## File Naming and Organization
+
+- Python source files: snake_case (e.g., `ollama_provider.py`, `docker_orchestrator.py`)
+- Classes: PascalCase (e.g., `OllamaProvider`, `DockerOrchestrator`)
+- One primary class per file; helper functions and constants co-located in the same file
+- New LLM provider classes belong in `intelligence/` and the class name MUST end in `Provider`
+- Test files live in `shield-claw/tests/` named `test_{subject}.py`
+  (e.g., `context/aggregator.py` → `tests/test_aggregator.py`)
+- Architecture Decision Records live in `shield-claw/docs/adrs/NNN-kebab-title.md`
+
+---
+
+## Per-File Header Convention
+
+Every source file MUST start with a header comment containing all six fields:
+
+  """
+  File:        path/to/file.py
+  Purpose:     One sentence — what this file is responsible for.
+  Public API:
+    - FunctionOrClass(signature_summary) -> return_type
+  Depends On:
+    - module_name (SymbolUsed)
+  Used By:
+    - path/to/file_that_imports_this.py
+  Use Cases:
+    - USE-CASE-ID or free-text description
+  """
+
+Rules:
+- Headers contain DECLARATIVE knowledge only — what the file IS, what it exports, what it imports.
+- NEVER put implementation explanations or step-by-step algorithms in headers. They go stale.
+- The Public API field must list every exported function, class, and constant that callers use.
+- Existing files do not yet have these headers. Add the correct header to any file you touch.
+
+---
+
+## Git Protocol
+
+### At task start:
+1. Confirm you are on `main` and the working tree is clean.
+2. Pull latest from origin if remote tracking is configured.
+3. Create a feature branch named: `task-{ID}-{short-kebab-description}`
+   (e.g., `task-005-add-openai-provider`)
+4. Announce the branch you created before writing any code.
+
+### During the task:
+- Commit at logical boundaries (after each module is implemented, after each test passes).
+- Use conventional commit format: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`
+- Reference the task ID in commit messages: `feat(task-005): implement OpenAI provider`
+- For tasks larger than ~200 lines or touching more than 3 files, commit incrementally.
+- For smaller tasks, a single commit at completion is acceptable.
+
+### At task end:
+1. Run `pytest shield-claw/tests/` — all tests must pass, including `test_architecture.py`.
+2. Run the structural idempotence test: re-run lint + format + typecheck a SECOND time.
+   If any output changes between runs, the harness has a gap — STOP and report it.
+3. If everything passes:
+   - Switch to main:  `git checkout main`
+   - Merge:           `git merge --no-ff task-{ID}-{description}`
+   - Delete branch:   `git branch -d task-{ID}-{description}`
+4. If anything fails, report the failure and STOP. Do not merge.
+
+### Forbidden git operations:
+- NEVER `git push` without explicit user approval. Pushes are user-initiated.
+- NEVER `git push --force` under any circumstance.
+- NEVER commit AI scratch files (research/, plans/, RESEARCH.md, PLAN.md, etc.).
+  These are gitignored at the repo level; do not bypass .gitignore.
+
+---
+
+## AI Markdown Files — Gitignore Policy
+
+Files that exist only for AI consumption are gitignored and MUST NOT be committed:
+  ai/                  .ai/                  plans/
+  research/            *-research.md         *-plan.md
+  *-compaction.md      *.scratch.md          *.tmp.md
+
+Files that DO live in the repo (committed):
+  README.md                       human-facing project documentation
+  SECURITY.md, RESPONSIBLE_USE.md project policies
+  .cursorrules                    this file — the harness
+  harness-engineering.md          the harness framework (if present)
+  CONTEXT.md files                per-directory procedural knowledge
+  shield-claw/docs/adrs/*.md      Architecture Decision Records
+
+The principle: if a markdown file's content is verifiable and stable, it lives in the repo.
+If it is narrative, point-in-time, or AI-only, it does not.
+
+---
+
+## Smart Zone Discipline
+
+Operate best when context utilization stays in the first ~40% of capacity.
+
+- Read only what the current task needs. Per-file headers and CONTEXT.md files exist to let
+  you understand a file's role without reading its full implementation.
+- Use sub-agents for codebase research; have them return condensed summaries rather than
+  reading entire files into the main context.
+- If a session has been running long and corrections are accumulating, propose a fresh session
+  with a compaction summary rather than continuing to fight a degrading context window.
+
+---
+
+## On Mistakes
+
+If you make a mistake and the user corrects it, do NOT just fix the immediate issue.
+Identify what rule, header, or CONTEXT.md change would PREVENT this mistake in the future.
+Propose that harness change. The user may accept or reject it, but the proposal is
+mandatory as part of every error correction. This is how the harness converges.
+
+---
+
+## Summary of Critical Rules (bookend reminder)
+
+1. Feature modules NEVER import each other. `test_architecture.py` enforces this.
+2. `__main__.py` NEVER imports feature modules directly — only `orchestrator.py`.
+3. `models.py` and `exceptions.py` have zero `shieldclaw.*` imports.
+4. Every file you touch gets the six-field header before you commit.
+5. NEVER `git push` without explicit user approval.
+6. End every task with the structural idempotence test (lint+format+typecheck twice).
