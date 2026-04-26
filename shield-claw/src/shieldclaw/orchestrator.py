@@ -1,4 +1,25 @@
-"""End-to-end pipeline coordinating context, LLM, Docker, and reporting stages."""
+"""
+File:        src/shieldclaw/orchestrator.py
+Purpose:     Pipeline state machine that drives the four scan stages from context
+             aggregation through exploit generation, detonation, and report emission.
+Public API:
+  - default_provider_factory(provider_name: str) -> LLMProvider
+  - Orchestrator (class: run(target_dir, diff_path, provider_name, timeout, output_path) -> ScanResult)
+Depends On:
+  - shieldclaw.context.aggregator (ContextAggregator)
+  - shieldclaw.exceptions (SandboxStartError, ShieldClawError)
+  - shieldclaw.intelligence.anthropic_provider (AnthropicProvider)
+  - shieldclaw.intelligence.base (LLMProvider)
+  - shieldclaw.intelligence.ollama (OllamaProvider)
+  - shieldclaw.intelligence.openai_provider (OpenAIProvider)
+  - shieldclaw.models (ExploitPayload, ScanContext, ScanResult)
+  - shieldclaw.reporting.builder (ReportBuilder)
+  - shieldclaw.sandbox.docker_orchestrator (DockerOrchestrator, compose_default_network)
+Used By:
+  - src/shieldclaw/__main__.py
+Use Cases:
+  - SCAN-001 (Run Vulnerability Scan)
+"""
 
 from __future__ import annotations
 

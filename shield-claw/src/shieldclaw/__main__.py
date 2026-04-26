@@ -1,4 +1,18 @@
-"""Command-line entrypoint for ShieldClaw: loads env, configures logging, runs the pipeline."""
+"""
+File:        src/shieldclaw/__main__.py
+Purpose:     CLI entry point — parses arguments, validates inputs, and dispatches to Orchestrator.
+Public API:
+  - CLIValidationError (exception class, raised for invalid CLI arguments)
+  - validate_run_configuration(args: Namespace) -> None
+  - main(argv: list[str] | None = None) -> int
+Depends On:
+  - dotenv (load_dotenv)
+  - shieldclaw.orchestrator (Orchestrator)
+Used By:
+  - Python runtime (python -m shieldclaw)
+Use Cases:
+  - SCAN-001 (Run Vulnerability Scan)
+"""
 
 from __future__ import annotations
 

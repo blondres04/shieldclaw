@@ -1,4 +1,30 @@
-"""Core dataclasses representing scan results, context, payloads, and sandbox state."""
+"""
+File:        src/shieldclaw/models.py
+Purpose:     Shared immutable dataclasses representing scan inputs, exploit payloads,
+             container state, and scan results.
+Public API:
+  - ContainerStatus (Enum: PENDING, RUNNING, STOPPED, FAILED)
+  - ExploitPayload (frozen dataclass: payload_id, raw_code, target_dns, execution_command, language)
+  - ContainerState (frozen dataclass: status, attacker_container_id, startup_logs)
+  - ScanResult (frozen dataclass: result_id, exit_code, is_vulnerable, pipeline_error,
+                duration_seconds, exploit_payload, container_state)
+  - ScanContext (frozen dataclass: target_dir, git_diff_content, docker_compose_content, timestamp)
+Depends On:
+  - stdlib only (dataclasses, datetime, enum, uuid)
+Used By:
+  - src/shieldclaw/orchestrator.py
+  - src/shieldclaw/context/aggregator.py
+  - src/shieldclaw/intelligence/base.py
+  - src/shieldclaw/intelligence/ollama.py
+  - src/shieldclaw/intelligence/openai_provider.py
+  - src/shieldclaw/intelligence/anthropic_provider.py
+  - src/shieldclaw/intelligence/parser.py
+  - src/shieldclaw/intelligence/prompts.py
+  - src/shieldclaw/sandbox/docker_orchestrator.py
+  - src/shieldclaw/reporting/builder.py
+Use Cases:
+  - SCAN-001 (Run Vulnerability Scan)
+"""
 
 from __future__ import annotations
 
