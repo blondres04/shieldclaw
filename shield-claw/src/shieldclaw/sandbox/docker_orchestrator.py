@@ -181,7 +181,9 @@ class DockerOrchestrator:
                 input=payload.raw_code,
             )
         except subprocess.TimeoutExpired:
-            _LOG.warning("Detonation timed out after %s seconds; killing %s", timeout, container_name)
+            _LOG.warning(
+                "Detonation timed out after %s seconds; killing %s", timeout, container_name
+            )
             self._force_remove_container(container_name)
             return 124
         except FileNotFoundError as exc:
@@ -313,7 +315,9 @@ class DockerOrchestrator:
             detail = (removed.stderr or "").strip() or "docker rm failed"
             raise SandboxStartError(f"Stale container cleanup failed: {detail}")
 
-    def _compose_command_prefix(self, compose_file: Path, override: Path, project: str) -> list[str]:
+    def _compose_command_prefix(
+        self, compose_file: Path, override: Path, project: str
+    ) -> list[str]:
         """Build the shared ``docker compose`` prefix including optional label overrides."""
         if override.is_file():
             return [
@@ -419,11 +423,15 @@ class DockerOrchestrator:
             raise error_cls(f"Unable to execute command: {' '.join(cmd)}") from exc
 
         if completed.returncode != 0:
-            detail = (completed.stderr or "").strip() or (completed.stdout or "").strip() or "no output"
+            detail = (
+                (completed.stderr or "").strip() or (completed.stdout or "").strip() or "no output"
+            )
             raise error_cls(f"{error_prefix} (exit {completed.returncode}): {detail}")
         return completed
 
-    def _run_optional(self, cmd: list[str], *, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+    def _run_optional(
+        self, cmd: list[str], *, cwd: Path, timeout: float
+    ) -> subprocess.CompletedProcess[str]:
         """Execute a command for teardown paths; failures are handled by callers."""
         _LOG.debug("Running command: %s", cmd)
         return subprocess.run(
@@ -434,7 +442,9 @@ class DockerOrchestrator:
             cwd=str(cwd),
         )
 
-    def _run_capture(self, cmd: list[str], *, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+    def _run_capture(
+        self, cmd: list[str], *, cwd: Path, timeout: float
+    ) -> subprocess.CompletedProcess[str]:
         """Run a command and return the completed process without enforcing success."""
         _LOG.debug("Running command: %s", cmd)
         return subprocess.run(

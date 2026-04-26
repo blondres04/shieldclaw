@@ -103,7 +103,9 @@ def validate_run_configuration(args: Namespace) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     """Construct the top-level CLI parser with a ``run`` subcommand."""
-    parser = _ShieldClawArgumentParser(prog="shieldclaw", description="ShieldClaw security scan pipeline.")
+    parser = _ShieldClawArgumentParser(
+        prog="shieldclaw", description="ShieldClaw security scan pipeline."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="Run the vulnerability scan pipeline.")
     run.add_argument("--target", required=True, help="Path to the repository under test.")

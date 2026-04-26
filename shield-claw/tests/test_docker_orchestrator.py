@@ -44,7 +44,9 @@ def test_ensure_docker_raises_when_docker_missing(mocker: MockerFixture) -> None
 
 def test_ensure_docker_raises_on_nonzero_exit(mocker: MockerFixture) -> None:
     """Non-zero ``docker version`` should surface ``DockerNotAvailableError``."""
-    proc = subprocess.CompletedProcess(["docker", "version"], returncode=1, stdout="", stderr="boom")
+    proc = subprocess.CompletedProcess(
+        ["docker", "version"], returncode=1, stdout="", stderr="boom"
+    )
     mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
     orch = DockerOrchestrator()
     with pytest.raises(DockerNotAvailableError) as excinfo:
