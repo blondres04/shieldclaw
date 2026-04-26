@@ -1,4 +1,29 @@
-"""Typed exception hierarchy for ShieldClaw pipeline and integration failures."""
+"""
+File:        src/shieldclaw/exceptions.py
+Purpose:     Typed exception hierarchy for all ShieldClaw pipeline and integration failures.
+Public API:
+  - ShieldClawError (base exception, carries .message: str)
+  - AggregationError
+  - LLMRefusalError
+  - LLMResponseError
+  - LLMConnectionError
+  - DockerNotAvailableError
+  - SandboxStartError
+  - DetonationError
+Depends On:
+  - stdlib only
+Used By:
+  - src/shieldclaw/orchestrator.py
+  - src/shieldclaw/context/aggregator.py
+  - src/shieldclaw/intelligence/base.py
+  - src/shieldclaw/intelligence/ollama.py
+  - src/shieldclaw/intelligence/openai_provider.py
+  - src/shieldclaw/intelligence/anthropic_provider.py
+  - src/shieldclaw/intelligence/parser.py
+  - src/shieldclaw/sandbox/docker_orchestrator.py
+Use Cases:
+  - SCAN-001 (Run Vulnerability Scan)
+"""
 
 from __future__ import annotations
 
