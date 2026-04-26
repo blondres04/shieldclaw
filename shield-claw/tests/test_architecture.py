@@ -190,4 +190,3 @@ def test_leaf_modules_have_no_internal_imports() -> None:
         assert path.is_file(), f"missing {path}"
         bad = _leaf_shieldclaw_imports(path)
         assert not bad, f"{path} must not import shieldclaw submodules; found: {bad}"
-
