@@ -1,7 +1,7 @@
 # ShieldClaw — SAST Verification Engine
 
-> **v0.2 pivot in progress on branch `pivot/sast-verifier`.**
-> See [CHANGELOG](./CHANGELOG.md) for the full change log.
+> **v0.2.0 shipped — 2026-04-28.**
+> See [CHANGELOG](./CHANGELOG.md) · [Release notes](https://github.com/blondres04/shieldclaw/releases/tag/v0.2.0)
 
 ShieldClaw is a CLI tool that turns Semgrep findings into evidence-backed
 True / False Positive verdicts. It feeds each finding to an LLM to generate
