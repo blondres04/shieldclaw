@@ -61,6 +61,7 @@ def test_start_sandbox_invokes_compose_up(mocker: MockerFixture, tmp_path: Path)
     result_id = "integration-test"
 
     mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
+    mocker.patch.object(DockerOrchestrator, "_probe_attacker_image", autospec=True)
     mocker.patch.object(DockerOrchestrator, "_cleanup_stale", autospec=True)
     mocker.patch.object(DockerOrchestrator, "_wait_for_compose_ready", autospec=True)
 
@@ -116,6 +117,22 @@ def test_detonate_timeout_returns_124(mocker: MockerFixture) -> None:
     outcome = orch.detonate(payload, "net", "rid", timeout=1)
     assert outcome.exit_code == 124
     kill_mock.assert_called_once()
+
+
+def test_probe_attacker_image_raises_when_missing(mocker: MockerFixture) -> None:
+    """``_probe_attacker_image`` must raise ``SandboxStartError`` when image absent."""
+    proc = subprocess.CompletedProcess(["docker", "image", "inspect"], 1, "", "No such image")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    orch = DockerOrchestrator()
+    with pytest.raises(SandboxStartError, match="not found"):
+        orch._probe_attacker_image()
+
+
+def test_probe_attacker_image_passes_when_present(mocker: MockerFixture) -> None:
+    """``_probe_attacker_image`` must not raise when image is present."""
+    proc = subprocess.CompletedProcess(["docker", "image", "inspect"], 0, "sha256:abc123", "")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    DockerOrchestrator()._probe_attacker_image()  # must not raise
 
 
 def test_cleanup_stale_filters_by_result_id(mocker: MockerFixture) -> None:

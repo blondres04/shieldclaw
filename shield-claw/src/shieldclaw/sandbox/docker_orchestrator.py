@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import subprocess
 import time
 import uuid
@@ -29,22 +30,15 @@ _DOCKER_INFO_TIMEOUT = 15.0
 _COMPOSE_UP_TIMEOUT = 120.0
 _START_POLL_INTERVAL = 2.0
 _START_WAIT_SECONDS = 60.0
-_DETONATE_IMAGE = "python:3.11-slim"
 
-# ``python:3.11-slim`` does not ship with ``requests``. The attacker runs as UID 1000 with a
-# read-only rootfs, so dependencies are installed with ``pip --target`` under ``/tmp``.
-_DETONATE_BOOTSTRAP = (
-    "import os, subprocess, sys;"
-    "os.makedirs('/tmp/pylib', exist_ok=True);"
-    "subprocess.check_call("
-    "[sys.executable, '-m', 'pip', 'install', '-q', '--disable-pip-version-check', "
-    "'--target', '/tmp/pylib', 'requests', 'urllib3'],"
-    "stdout=subprocess.DEVNULL,"
-    ");"
-    "sys.path.insert(0, '/tmp/pylib');"
-    "code = sys.stdin.read();"
-    "exec(compile(code, '<exploit>', 'exec'))"
-)
+# Default tag for the pre-built attacker image.  Override via
+# SHIELDCLAW_ATTACKER_IMAGE to pin a different version or registry.
+_DETONATE_IMAGE_DEFAULT = "ghcr.io/blondres04/shieldclaw-attacker:0.1"
+
+
+def _detonate_image() -> str:
+    """Return the attacker image tag, consulting ``SHIELDCLAW_ATTACKER_IMAGE``."""
+    return os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", _DETONATE_IMAGE_DEFAULT)
 
 
 def compose_project_name(result_id: str) -> str:
@@ -114,6 +108,7 @@ class DockerOrchestrator:
         if not compose_file.is_file():
             raise SandboxStartError(f"Compose file not found: {compose_file}")
         self._ensure_docker()
+        self._probe_attacker_image()
         self._cleanup_stale(result_id)
         project = compose_project_name(result_id)
         cwd = compose_file.parent
@@ -231,6 +226,8 @@ class DockerOrchestrator:
         ]
 
         container_name = f"shieldclaw-att-{uuid.uuid4().hex[:20]}"
+        # The pre-built image's ENTRYPOINT already handles stdin exec; no
+        # bootstrap script or pip install is needed.
         cmd = [
             "docker",
             "run",
@@ -249,10 +246,7 @@ class DockerOrchestrator:
             f"--label=shieldclaw.run={result_id}",
             "-e",
             "PYTHONDONTWRITEBYTECODE=1",
-            _DETONATE_IMAGE,
-            "python",
-            "-c",
-            _DETONATE_BOOTSTRAP,
+            _detonate_image(),
         ]
         _LOG.debug("Running command: %s", cmd)
         exit_code: int
@@ -383,6 +377,35 @@ class DockerOrchestrator:
         if completed.returncode != 0:
             detail = (completed.stderr or "").strip() or "unknown error"
             raise DockerNotAvailableError(f"Docker is not available: {detail}")
+
+    def _probe_attacker_image(self) -> None:
+        """Verify the pre-built attacker image is present in the local Docker daemon.
+
+        Raises:
+            SandboxStartError: When the image is not found, with a clear message
+                pointing to ``scripts/build_attacker_image.sh``.
+        """
+        image = _detonate_image()
+        cmd = ["docker", "image", "inspect", "--format", "{{.Id}}", image]
+        _LOG.debug("Running command: %s", cmd)
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_DOCKER_INFO_TIMEOUT,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+            raise SandboxStartError(f"Unable to inspect attacker image {image!r}.") from exc
+
+        if result.returncode != 0:
+            raise SandboxStartError(
+                f"Attacker image {image!r} not found in local Docker daemon.  "
+                "Build it first:\n"
+                "  cd shield-claw && bash scripts/build_attacker_image.sh\n"
+                "Or set SHIELDCLAW_ATTACKER_IMAGE to an existing image tag."
+            )
+        _LOG.debug("Attacker image %s found (id prefix %s)", image, result.stdout.strip()[:12])
 
     def _cleanup_stale(self, result_id: str) -> None:
         """Remove any containers labeled with this run's ``shieldclaw.run`` value.
