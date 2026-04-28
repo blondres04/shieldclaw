@@ -231,11 +231,17 @@ class Orchestrator:
         output_path: str | None,
         resume_scan_id: str | None,
     ) -> ScanResult:
-        """Ingest → triage → score with SQLite persistence and resumability."""
+        """Ingest → triage → score → [approve → PoC → detonate → verdict] pipeline."""
+        from shieldclaw.approval.gate import get_current_user, is_auto_approve_enabled
         from shieldclaw.ingest.semgrep import parse_semgrep_json
+        from shieldclaw.intelligence.poc_generator import PocGenerator
+        from shieldclaw.observer.docker_diff import DockerDiffObserver
+        from shieldclaw.observer.exit_code import ExitCodeObserver
+        from shieldclaw.observer.target_logs import TargetLogObserver
         from shieldclaw.persistence.store import ScanStore
         from shieldclaw.scoring.exploitability import ExploitabilityScorer
         from shieldclaw.triage.classifier import classify
+        from shieldclaw.verdict.synthesizer import synthesize
 
         result_id = uuid.uuid4()
         started = time.monotonic()
@@ -294,6 +300,70 @@ class Orchestrator:
                     )
                 store.update_finding_state(row.finding_id, "SCORED")
 
+            # Phase 3: auto-approve → PoC generate → detonate → verdict
+            # Only runs when SHIELDCLAW_AUTO_APPROVE=1 is set.
+            # Without it the pipeline stops here (findings stay SCORED).
+            if is_auto_approve_enabled():
+                decided_by = get_current_user()
+                scored_dv = [
+                    r
+                    for r in store.get_pending_findings(scan_id, "SCORED")
+                    if r.triage_verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE.value
+                ]
+                for row in scored_dv:
+                    _LOG.warning(
+                        "AUTO-APPROVING finding %s (SHIELDCLAW_AUTO_APPROVE=1)", row.finding_id
+                    )
+                    store.record_approval(
+                        row.finding_id,
+                        "APPROVED",
+                        decided_by,
+                        note="auto-approved by orchestrator",
+                        auto=True,
+                    )
+                    store.update_finding_state(row.finding_id, "APPROVED")
+
+                approved = store.get_pending_findings(scan_id, "APPROVED")
+                if approved:
+                    poc_gen = PocGenerator(provider, model_name=provider_name)
+                    compose_path = _resolve_compose_path(resolved_target)
+                    store.update_scan_state(scan_id, "DETONATING")
+
+                    if compose_path:
+                        sandbox_token = str(uuid.uuid4())
+                        network = compose_default_network(sandbox_token)
+                        observers = [ExitCodeObserver(), DockerDiffObserver(), TargetLogObserver()]
+                        try:
+                            self._docker.start_sandbox(compose_path, sandbox_token)
+                            target_cid = self._docker.get_target_container_id(
+                                compose_path, sandbox_token
+                            )
+                            for row in approved:
+                                self._detonate_finding(
+                                    row=row,
+                                    resolved_target=resolved_target,
+                                    compose_yaml=compose_yaml,
+                                    poc_gen=poc_gen,
+                                    provider_name=provider_name,
+                                    store=store,
+                                    network=network,
+                                    sandbox_token=sandbox_token,
+                                    target_cid=target_cid,
+                                    observers=observers,  # type: ignore[arg-type]
+                                    synthesize=synthesize,
+                                )
+                        finally:
+                            self._docker.teardown(compose_path, sandbox_token)
+                    else:
+                        for row in approved:
+                            store.record_verdict(
+                                row.finding_id,
+                                "INCONCLUSIVE",
+                                0.0,
+                                "No compose file found; detonation skipped.",
+                            )
+                            store.update_finding_state(row.finding_id, "VERDICTED")
+
             store.update_scan_state(scan_id, "COMPLETE")
             _LOG.info("Scan %s complete", scan_id)
 
@@ -318,6 +388,103 @@ class Orchestrator:
 
         assert final_result is not None
         return final_result
+
+    def _detonate_finding(
+        self,
+        *,
+        row: object,
+        resolved_target: str,
+        compose_yaml: str,
+        poc_gen: object,
+        provider_name: str,
+        store: object,
+        network: str,
+        sandbox_token: str,
+        target_cid: str | None,
+        observers: list[
+            object
+        ],  # Sequence[DetonationObserver]; typed as list[object] to avoid import
+        synthesize: object,
+    ) -> None:
+        """Generate PoC, detonate, and record verdict for one approved finding."""
+        from shieldclaw.exceptions import LLMConnectionError, LLMResponseError
+        from shieldclaw.intelligence.poc_generator import PocGenerator
+        from shieldclaw.persistence.store import FindingRow, ScanStore
+        from shieldclaw.verdict.synthesizer import synthesize as _synthesize
+
+        assert isinstance(row, FindingRow)
+        assert isinstance(store, ScanStore)
+        assert isinstance(poc_gen, PocGenerator)
+
+        finding = _finding_from_row(row)
+        excerpt = _extract_source_lines(resolved_target, finding)
+
+        try:
+            payload = poc_gen.generate(finding, excerpt, compose_yaml)
+        except (LLMResponseError, LLMConnectionError) as exc:
+            _LOG.warning("PoC generation failed for %s: %s", row.finding_id, exc)
+            store.record_verdict(
+                row.finding_id,
+                "INCONCLUSIVE",
+                0.10,
+                f"PoC generation failed: {exc.message}",
+            )
+            store.update_finding_state(row.finding_id, "VERDICTED")
+            return
+
+        store.record_poc(
+            str(uuid.uuid4()),
+            row.finding_id,
+            payload.raw_code,
+            payload.target_dns,
+            payload.execution_command,
+            payload.language,
+            provider_name,
+        )
+
+        from shieldclaw.models import DetonationObserver
+
+        obs_typed = [o for o in observers if isinstance(o, DetonationObserver)]
+
+        try:
+            outcome = self._docker.detonate(
+                payload,
+                network_name=network,
+                result_id=sandbox_token,
+                timeout=30,
+                observers=obs_typed,
+                target_container_id=target_cid,
+            )
+        except ShieldClawError as exc:
+            _LOG.warning("Detonation failed for %s: %s", row.finding_id, exc)
+            store.record_verdict(
+                row.finding_id, "INCONCLUSIVE", 0.10, f"Detonation error: {exc.message}"
+            )
+            store.update_finding_state(row.finding_id, "VERDICTED")
+            return
+
+        for ev in outcome.evidence:
+            store.record_evidence(
+                str(uuid.uuid4()),
+                row.finding_id,
+                ev.observer_name,
+                ev.tier,
+                ev.summary,
+                ev.payload_json,
+                ev.captured_at.isoformat(),
+            )
+
+        verdict = _synthesize(list(outcome.evidence))
+        store.record_verdict(
+            row.finding_id,
+            verdict.verdict,
+            verdict.confidence,
+            verdict.evidence_summary,
+        )
+        store.update_finding_state(row.finding_id, "VERDICTED")
+        _LOG.info(
+            "Finding %s: %s (confidence=%.2f)", row.finding_id, verdict.verdict, verdict.confidence
+        )
 
     # ------------------------------------------------------------------
     # Legacy diff/detonation path (v0.1 behaviour, preserved unchanged)
