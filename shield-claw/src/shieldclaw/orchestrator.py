@@ -37,7 +37,14 @@ from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import SandboxStartError, ShieldClawError
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.ollama import OllamaProvider
-from shieldclaw.models import ExploitPayload, Finding, ScanContext, ScanResult, TriageVerdict
+from shieldclaw.models import (
+    DetonationOutcome,
+    ExploitPayload,
+    Finding,
+    ScanContext,
+    ScanResult,
+    TriageVerdict,
+)
 from shieldclaw.reporting.builder import ReportBuilder
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator, compose_default_network
 
@@ -362,12 +369,13 @@ class Orchestrator:
                     case "SANDBOX_RUNNING":
                         assert payload is not None
                         network = compose_default_network(result_token)
-                        exit_code = self._docker.detonate(
+                        outcome: DetonationOutcome = self._docker.detonate(
                             payload,
                             network_name=network,
                             result_id=result_token,
                             timeout=timeout,
                         )
+                        exit_code = outcome.exit_code
                         is_vulnerable = exit_code == 0
                         state = _STATE_DETONATION_COMPLETE
                     case "DETONATION_COMPLETE":

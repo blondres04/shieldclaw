@@ -12,10 +12,16 @@ import logging
 import subprocess
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from shieldclaw.exceptions import DetonationError, DockerNotAvailableError, SandboxStartError
-from shieldclaw.models import ExploitPayload
+from shieldclaw.models import (
+    DetonationObserver,
+    DetonationOutcome,
+    ExploitPayload,
+    ObserverEvidence,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -125,13 +131,80 @@ class DockerOrchestrator:
         if self._post_up_grace > 0:
             time.sleep(self._post_up_grace)
 
+    def get_target_container_id(self, compose_path: str, result_id: str) -> str | None:
+        """Resolve the primary target container ID for observer use.
+
+        Queries ``docker compose ps --format json`` and returns the ID of the
+        first non-database service (heuristic: skip services whose name contains
+        ``db``, ``postgres``, ``mysql``, or ``redis``).
+
+        Args:
+            compose_path: Path to the compose file used for the stack.
+            result_id: Run identifier used to scope the compose project.
+
+        Returns:
+            Docker container ID string, or ``None`` when not resolvable.
+        """
+        compose_file = Path(compose_path).expanduser().resolve()
+        if not compose_file.is_file():
+            return None
+        project = compose_project_name(result_id)
+        override = label_override_path(compose_file, result_id)
+        cwd = compose_file.parent
+        cmd = self._compose_command_prefix(compose_file, override, project) + [
+            "ps",
+            "--format",
+            "json",
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=_DOCKER_INFO_TIMEOUT,
+                cwd=str(cwd),
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return None
+
+        if result.returncode != 0:
+            return None
+
+        import json
+
+        _db_keywords = ("db", "postgres", "mysql", "redis", "mongo")
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, list):
+                containers = obj
+            else:
+                containers = [obj]
+            for c in containers:
+                if not isinstance(c, dict):
+                    continue
+                name = str(c.get("Name", c.get("Service", ""))).lower()
+                if any(kw in name for kw in _db_keywords):
+                    continue
+                cid = c.get("ID") or c.get("Id")
+                if cid:
+                    return str(cid)
+        return None
+
     def detonate(
         self,
         payload: ExploitPayload,
         network_name: str,
         result_id: str,
         timeout: int = 15,
-    ) -> int:
+        observers: Sequence[DetonationObserver] = (),
+        target_container_id: str | None = None,
+    ) -> DetonationOutcome:
         """Run exploit code inside a hardened, ephemeral Python container.
 
         Args:
@@ -139,15 +212,24 @@ class DockerOrchestrator:
             network_name: Docker network shared with the vulnerable stack.
             result_id: Label value for ``shieldclaw.run``.
             timeout: Seconds to wait for the container to exit.
+            observers: Optional observers called before and after detonation.
+            target_container_id: Docker ID of the target (victim) container,
+                passed to observers for side-effect inspection.
 
         Returns:
-            Process exit code from the exploit, or ``124`` when the run times out.
+            ``DetonationOutcome`` containing the exit code and all observer evidence.
 
         Raises:
             DockerNotAvailableError: When Docker cannot be contacted.
             DetonationError: When the attacker container cannot be created or started.
         """
         self._ensure_docker()
+
+        # Call before_detonate for all observers.
+        before_states = [
+            obs.before_detonate(target_container_id, network_name) for obs in observers
+        ]
+
         container_name = f"shieldclaw-att-{uuid.uuid4().hex[:20]}"
         cmd = [
             "docker",
@@ -173,6 +255,10 @@ class DockerOrchestrator:
             _DETONATE_BOOTSTRAP,
         ]
         _LOG.debug("Running command: %s", cmd)
+        exit_code: int
+        stdout_text: str = ""
+        stderr_text: str = ""
+
         try:
             completed = subprocess.run(
                 cmd,
@@ -181,34 +267,54 @@ class DockerOrchestrator:
                 timeout=float(timeout),
                 input=payload.raw_code,
             )
+            stdout_text = completed.stdout or ""
+            stderr_text = completed.stderr or ""
         except subprocess.TimeoutExpired:
             _LOG.warning(
                 "Detonation timed out after %s seconds; killing %s", timeout, container_name
             )
             self._force_remove_container(container_name)
-            return 124
+            exit_code = 124
+            evidence = tuple(
+                obs.after_detonate(bs, exit_code, "", "", target_container_id)
+                for obs, bs in zip(observers, before_states, strict=True)
+            )
+            return DetonationOutcome(exit_code=exit_code, evidence=evidence)
         except FileNotFoundError as exc:
             raise DetonationError("docker executable not found on PATH.") from exc
         except OSError as exc:
             raise DetonationError("Unable to execute docker run for detonation.") from exc
 
-        if completed.returncode != 0 and self._looks_like_docker_client_error(completed.stderr):
-            detail = (completed.stderr or "").strip() or "docker run failed without stderr."
+        if completed.returncode != 0 and self._looks_like_docker_client_error(stderr_text):
+            detail = stderr_text.strip() or "docker run failed without stderr."
             raise DetonationError(f"Failed to start attacker container: {detail}")
 
-        if completed.returncode != 0 and self._looks_like_docker_client_error(completed.stdout):
-            detail = (completed.stdout or "").strip()
+        if completed.returncode != 0 and self._looks_like_docker_client_error(stdout_text):
+            detail = stdout_text.strip()
             raise DetonationError(f"Failed to start attacker container: {detail}")
 
         if completed.returncode != 0:
             _LOG.info(
                 "Exploit container exited %s; stdout=%r stderr=%r",
                 completed.returncode,
-                (completed.stdout or "")[:4000],
-                (completed.stderr or "")[:4000],
+                stdout_text[:4000],
+                stderr_text[:4000],
             )
 
-        return int(completed.returncode)
+        exit_code = int(completed.returncode)
+
+        # Call after_detonate for all observers.
+        evidence_list: list[ObserverEvidence] = []
+        for obs, bs in zip(observers, before_states, strict=True):
+            try:
+                ev = obs.after_detonate(
+                    bs, exit_code, stdout_text, stderr_text, target_container_id
+                )
+                evidence_list.append(ev)
+            except Exception as exc:  # noqa: BLE001
+                _LOG.warning("Observer %s failed: %s", obs.name, exc)
+
+        return DetonationOutcome(exit_code=exit_code, evidence=tuple(evidence_list))
 
     def teardown(self, compose_path: str, result_id: str) -> None:
         """Tear down compose volumes and remove labeled containers best-effort.
