@@ -6,7 +6,14 @@ import ast
 from pathlib import Path
 from typing import Final
 
-_FEATURE_MODULES: Final[tuple[str, ...]] = ("context", "intelligence", "sandbox", "reporting")
+_FEATURE_MODULES: Final[tuple[str, ...]] = (
+    "context",
+    "ingest",
+    "intelligence",
+    "reporting",
+    "sandbox",
+    "triage",
+)
 _ALLOWED_SHIELDCLAW_LEAVES: Final[frozenset[str]] = frozenset({"models", "exceptions"})
 
 

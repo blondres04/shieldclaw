@@ -1,0 +1,232 @@
+"""Tests for ``shieldclaw.triage.classifier.classify``."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Literal
+
+import pytest
+
+from shieldclaw.models import Finding, TriagedFinding, TriageVerdict
+from shieldclaw.triage.classifier import classify
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_SEVERITY = Literal["INFO", "WARNING", "ERROR"]
+
+
+def _finding(
+    *,
+    rule_id: str = "test.rule",
+    severity: str = "ERROR",
+    cwe: tuple[str, ...] = (),
+    path: str = "app.py",
+) -> Finding:
+    return Finding(
+        finding_id=uuid.uuid5(uuid.NAMESPACE_URL, f"{rule_id}:{path}:1:1"),
+        rule_id=rule_id,
+        severity=severity,  # type: ignore[arg-type]
+        path=path,
+        start_line=1,
+        end_line=1,
+        message="test finding",
+        cwe=cwe,
+        metavars={},
+        raw_extra="{}",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parametrised: 20 findings covering all three verdict buckets
+# ---------------------------------------------------------------------------
+
+_CASES: list[tuple[str, Finding, TriageVerdict]] = [
+    # --- DYNAMICALLY_VERIFIABLE (10) ---
+    (
+        "sqli",
+        _finding(rule_id="python.flask.sqli", cwe=("CWE-89",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "xss",
+        _finding(rule_id="python.jinja2.xss", cwe=("CWE-79",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "cmd_injection",
+        _finding(rule_id="python.os.cmd-injection", cwe=("CWE-78",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "code_injection",
+        _finding(rule_id="python.eval.code-injection", cwe=("CWE-94",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "ssrf",
+        _finding(rule_id="python.requests.ssrf", cwe=("CWE-918",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "path_traversal",
+        _finding(rule_id="python.pathlib.traversal", cwe=("CWE-22",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "csrf",
+        _finding(rule_id="python.flask.csrf", cwe=("CWE-352",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "xxe",
+        _finding(rule_id="python.xml.xxe", cwe=("CWE-611",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "deserialization",
+        _finding(rule_id="python.pickle.deser", cwe=("CWE-502",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    (
+        "open_redirect",
+        _finding(rule_id="python.flask.redirect", cwe=("CWE-601",)),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+    ),
+    # --- STATIC_ONLY (5) ---
+    (
+        "weak_hash",
+        _finding(rule_id="python.crypto.md5", cwe=("CWE-328",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    (
+        "weak_crypto_algo",
+        _finding(rule_id="python.crypto.des", cwe=("CWE-327",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    (
+        "insecure_random",
+        _finding(rule_id="python.random.weak", cwe=("CWE-330",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    (
+        "hardcoded_creds",
+        _finding(rule_id="python.secrets.hardcoded", cwe=("CWE-798",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    (
+        "hardcoded_password",
+        _finding(rule_id="python.password.literal", cwe=("CWE-259",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    # --- OUT_OF_SCOPE (5) ---
+    (
+        "dockerfile_rule",
+        _finding(rule_id="dockerfile.security.apt-get-upgrade"),
+        TriageVerdict.OUT_OF_SCOPE,
+    ),
+    (
+        "terraform_rule",
+        _finding(rule_id="terraform.aws.s3-public-access"),
+        TriageVerdict.OUT_OF_SCOPE,
+    ),
+    (
+        "kubernetes_rule",
+        _finding(rule_id="kubernetes.pod-security-context"),
+        TriageVerdict.OUT_OF_SCOPE,
+    ),
+    (
+        "secrets_rule",
+        _finding(rule_id="secrets.aws.access-key"),
+        TriageVerdict.OUT_OF_SCOPE,
+    ),
+    (
+        "info_no_cwe",
+        _finding(rule_id="python.best-practice.info-note", severity="INFO", cwe=()),
+        TriageVerdict.OUT_OF_SCOPE,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "label,finding,expected_verdict",
+    _CASES,
+    ids=[c[0] for c in _CASES],
+)
+def test_classifier_buckets_correctly(
+    label: str, finding: Finding, expected_verdict: TriageVerdict
+) -> None:
+    """Every test case must receive the expected triage verdict."""
+    result = classify(finding)
+    assert isinstance(result, TriagedFinding)
+    assert result.finding is finding
+    assert result.verdict == expected_verdict, (
+        f"[{label}] expected {expected_verdict.value}, got {result.verdict.value}: {result.reason}"
+    )
+
+
+def test_at_least_18_of_20_correctly_bucketed() -> None:
+    """Guard: at least 18 of the 20 parametrised cases must classify correctly."""
+    correct = sum(1 for _, finding, expected in _CASES if classify(finding).verdict == expected)
+    assert correct >= 18, f"Only {correct}/20 findings classified correctly"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for specific classifier rules
+# ---------------------------------------------------------------------------
+
+
+def test_returns_triaged_finding_type() -> None:
+    """classify must always return a TriagedFinding."""
+    result = classify(_finding(cwe=("CWE-89",)))
+    assert isinstance(result, TriagedFinding)
+
+
+def test_finding_reference_preserved() -> None:
+    """The original Finding must be preserved in TriagedFinding.finding."""
+    f = _finding(cwe=("CWE-89",))
+    assert classify(f).finding is f
+
+
+def test_reason_is_non_empty() -> None:
+    """Every classification must produce a non-empty reason string."""
+    for _, f, _ in _CASES:
+        assert classify(f).reason, f"Empty reason for {f.rule_id}"
+
+
+def test_default_fallback_is_static_only() -> None:
+    """A finding with no CWE and no out-of-scope prefix defaults to STATIC_ONLY."""
+    f = _finding(rule_id="python.custom.unknown", severity="WARNING", cwe=())
+    result = classify(f)
+    assert result.verdict == TriageVerdict.STATIC_ONLY
+    assert "no rule mapped" in result.reason
+
+
+def test_info_severity_with_cwe_is_not_out_of_scope() -> None:
+    """INFO + known CWE must NOT be OUT_OF_SCOPE — it gets the CWE-mapped verdict."""
+    f = _finding(rule_id="python.rule", severity="INFO", cwe=("CWE-89",))
+    result = classify(f)
+    # CWE-89 wins over the INFO+no-CWE rule because the rule requires BOTH conditions.
+    assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+
+
+def test_first_matching_cwe_wins() -> None:
+    """When a finding has multiple CWEs the first matching one determines verdict."""
+    # CWE-89 (DV) listed before CWE-328 (SO) — DV must win.
+    f = _finding(cwe=("CWE-89", "CWE-328"))
+    assert classify(f).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+
+
+def test_license_prefix_is_out_of_scope() -> None:
+    """Rules prefixed with 'license.' must be OUT_OF_SCOPE."""
+    f = _finding(rule_id="license.gpl.compliance", cwe=("CWE-89",))
+    result = classify(f)
+    assert result.verdict == TriageVerdict.OUT_OF_SCOPE
+
+
+def test_cwe_with_description_suffix_normalised() -> None:
+    """CWE ids still containing the description suffix must be stripped."""
+    f = _finding(cwe=("CWE-89: SQL Injection (see OWASP Top 10)",))
+    result = classify(f)
+    assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
