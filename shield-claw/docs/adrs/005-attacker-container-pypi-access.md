@@ -1,30 +1,68 @@
-# ADR-005: PyPI Network Access from Attacker Container
+# ADR-005: Attacker Container PyPI Access
 
-## Context
+## Status
 
-The attacker container runs `python:3.11-slim`, which does not include the `requests` library. LLM-generated exploits typically use `requests` for HTTP-based attacks (SQLi, SSRF, command injection). During Task 10 integration, a runtime `pip install --target /tmp/pylib requests` was added to the detonation bootstrap.
+Superseded by Phase 4 pre-built image — 2026-04-28
 
-This grants the attacker container outbound internet access to PyPI, which was not part of the original Phase 7 STRIDE analysis (Trust Boundary 3 assumed the attacker container only communicates with target services on the Docker network).
+The original decision (accept PyPI access for MVP) has been superseded.
+`docker/attacker.Dockerfile` now bakes `requests` and `urllib3` at build time.
+Detonation no longer requires outbound internet access.
 
-## Alternatives Considered
+The original rationale is preserved below for historical context.
 
-1. **Pre-built custom attacker image** with `requests` baked in. Eliminates runtime PyPI access. Requires maintaining a Docker image.
-2. **Accept PyPI access and document the risk.** Simpler but expands the attack surface.
-3. **Restrict the LLM to stdlib-only exploits** (urllib3, http.client). Reduces exploit quality significantly.
+---
 
-## Decision
+## Original Context (v0.1 decision)
 
-Accept PyPI access for the MVP with documentation. The risk is that a malicious LLM-generated payload could `pip install` a package that exfiltrates data. This is mitigated by:
+The attacker container runs `python:3.11-slim`, which does not include
+`requests`. LLM-generated exploits typically need `requests` for HTTP attacks.
+A runtime `pip install --target /tmp/pylib requests urllib3` was added to
+the detonation bootstrap.
 
-- The configurable execution timeout (CLI default 15 seconds, max 120) limits exfiltration volume
-- The `--memory=256m` and `--pids-limit=100` constraints limit what can be installed
-- The user is explicitly running untrusted AI-generated code (the core feature)
+This grants the attacker container outbound internet access to PyPI —
+outside the original Trust Boundary 3 analysis that assumed the attacker
+only communicates with compose-internal services.
 
-A future improvement (V2) should pre-build a custom attacker image to eliminate this trust boundary entirely.
+## Phase 4 Decision (2026-04-28)
+
+Implement a pre-built attacker image (`docker/attacker.Dockerfile`):
+
+```dockerfile
+FROM python:3.11-slim
+RUN pip install --no-cache-dir "requests==2.32.*" "urllib3==2.2.*" \
+    && useradd -m -u 1000 attacker
+USER 1000:1000
+WORKDIR /tmp
+ENTRYPOINT ["python", "-c", "import sys; exec(compile(sys.stdin.read(), '<exploit>', 'exec'))"]
+```
+
+The `ENTRYPOINT` reads exploit code from stdin and `exec`-compiles it —
+exactly matching the existing `subprocess.run(input=payload.raw_code)`
+interface. No bootstrap script or runtime pip install is needed.
+
+The image tag is `ghcr.io/blondres04/shieldclaw-attacker:0.1` by default
+and is overridable via `SHIELDCLAW_ATTACKER_IMAGE`.
+
+`DockerOrchestrator.start_sandbox()` probes the image with
+`docker image inspect` before starting the compose stack, and raises
+`SandboxStartError` with build instructions if the image is missing.
 
 ## Consequences
 
-- The attacker container has outbound internet access during detonation
-- This is a known, documented, accepted risk for the MVP
-- The README Security Considerations section must mention this
-- Revisit this decision if Shield Claw is ever used in air-gapped environments
+**Positive**
+- Zero outbound internet required at detonation time.
+- The attacker container network can now be made `internal: true` in future
+  phases without breaking exploit functionality.
+- Detonation is faster (no pip install) and deterministic (pinned deps).
+
+**Negative**
+- The pre-built image must be rebuilt when `requests` or `urllib3` receive
+  a security update. This is standard container maintenance.
+- New contributors must run `scripts/build_attacker_image.sh` once before
+  integration tests pass — `verify_harness.sh` automates this.
+
+## Alternatives Considered
+
+See original ADR-005 for the three alternatives evaluated at v0.1.
+The pre-built image was Alternative 1 in that analysis and is now the
+implemented decision.

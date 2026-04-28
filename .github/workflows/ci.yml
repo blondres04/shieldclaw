@@ -11,20 +11,52 @@ on:
       - main
       - pivot/sast-verifier
 
-jobs:
-  quality:
-    name: quality checks
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: shield-claw
+defaults:
+  run:
+    working-directory: shield-claw
 
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1: Lint
+  # --------------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            shield-claw/requirements.txt
+            shield-claw/requirements-dev.txt
+
+      - name: install dependencies
+        run: pip install -r requirements-dev.txt -e .
+
+      - name: ruff format check
+        run: ruff format --check .
+
+      - name: ruff lint
+        run: ruff check .
+
+  # --------------------------------------------------------------------------
+  # Job 2: Type checking
+  # --------------------------------------------------------------------------
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
             shield-claw/requirements.txt
@@ -33,14 +65,98 @@ jobs:
       - name: install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt -e .
 
-      - name: ruff format check
-        run: ruff format --check .
+      - name: mypy (strict)
+        run: mypy --strict src/
 
-      - name: ruff lint
-        run: ruff check .
+  # --------------------------------------------------------------------------
+  # Job 3: Unit tests (no Docker, no LLM)
+  # --------------------------------------------------------------------------
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: mypy
-        run: mypy src/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            shield-claw/requirements.txt
+            shield-claw/requirements-dev.txt
 
-      - name: pytest (unit — no Docker required)
-        run: pytest tests/ -m "not integration" -q
+      - name: install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt -e .
+
+      - name: pytest unit
+        run: >-
+          pytest
+          -m "not integration"
+          --cov=shieldclaw
+          --cov-report=term-missing
+          --cov-report=xml:coverage.xml
+          -q
+
+      - name: upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: shield-claw/coverage.xml
+
+  # --------------------------------------------------------------------------
+  # Job 4: Integration tests (Docker required)
+  # Runs only on push/PR to main or pivot/sast-verifier to avoid
+  # exhausting Docker-in-Docker minutes on every phase branch.
+  # --------------------------------------------------------------------------
+  integration:
+    name: integration tests
+    runs-on: ubuntu-latest
+    # Only run on the main branches, not every phase branch.
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      github.ref == 'refs/heads/pivot/sast-verifier' ||
+      github.base_ref == 'main' ||
+      github.base_ref == 'pivot/sast-verifier'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            shield-claw/requirements.txt
+            shield-claw/requirements-dev.txt
+
+      - name: install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt -e .
+
+      - name: check Docker availability
+        id: docker_check
+        run: |
+          if docker info > /dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Docker daemon not available; integration tests will be skipped"
+          fi
+
+      - name: build attacker image
+        if: steps.docker_check.outputs.available == 'true'
+        run: |
+          cd ..
+          SHIELDCLAW_ATTACKER_IMAGE=shieldclaw-attacker:ci \
+            bash shield-claw/scripts/build_attacker_image.sh
+
+      - name: pytest integration
+        if: steps.docker_check.outputs.available == 'true'
+        env:
+          SHIELDCLAW_ATTACKER_IMAGE: shieldclaw-attacker:ci
+        run: >-
+          pytest
+          -m integration
+          --no-cov
+          -v
+          --timeout=300

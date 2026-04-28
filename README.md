@@ -1,238 +1,192 @@
-> **ShieldClaw — SAST verification engine. v0.2 pivot in progress on branch `pivot/sast-verifier`. See [CHANGELOG](./CHANGELOG.md).**
+# ShieldClaw — SAST Verification Engine
 
-# Shield Claw
+> **v0.2 pivot in progress on branch `pivot/sast-verifier`.**
+> See [CHANGELOG](./CHANGELOG.md) for the full change log.
 
-**Shield Claw** is a local CLI tool that uses LLM-generated exploits to empirically verify application-layer vulnerabilities in Docker-based projects. Unlike static analysis tools that predict whether code *might* be vulnerable, Shield Claw proves it by detonating an exploit against a running replica of your application.
-
-The primary implementation lives in [`shield-claw/`](./shield-claw/) (Python package `shieldclaw`). Optional offline LLM accuracy checks live under [`evals/`](./evals/).
-
----
-
-## Prerequisites
-
-- **Python** 3.11 or newer
-- **Docker Desktop** (or Docker Engine) with Compose v2 (`docker compose`, not legacy `docker-compose`) — must be **running** before you invoke the CLI
-- **Ollama** running locally *or* API credentials for **OpenAI** / **Anthropic** (see `shield-claw/.env.example`)
-- **Git** (only required when your target repo uses `git diff HEAD~1` instead of a bundled patch file)
+ShieldClaw is a CLI tool that turns Semgrep findings into evidence-backed
+True / False Positive verdicts. It feeds each finding to an LLM to generate
+a targeted proof-of-concept exploit, detonates it inside a hardened ephemeral
+Docker sandbox, collects multi-tier observer evidence, and synthesises a
+deterministic verdict — with a mandatory human-in-the-loop approval gate
+before any live exploit fires.
 
 ---
 
-## Quick start
+## Why it exists
 
-1. Clone the repository and enter it:
-
-   ```bash
-   git clone <repository-url>
-   cd <repository-directory>
-   ```
-
-2. Create and activate a virtual environment:
-
-   ```bash
-   # Unix / macOS
-   python3.11 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-   ```powershell
-   # Windows (PowerShell)
-   py -3.11 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   ```
-
-   > **Why a virtual environment?** Without one, the `shieldclaw` entry-point script may not land on your `PATH`. If `shieldclaw` is unrecognised after installation, use `python -m shieldclaw` instead — this always works regardless of PATH state.
-
-3. Install the package and its dependencies:
-
-   ```bash
-   pip install -r shield-claw/requirements.txt
-   pip install -e shield-claw/
-   ```
-
-4. Configure environment variables:
-
-   ```bash
-   cp shield-claw/.env.example shield-claw/.env
-   ```
-
-   The default model is `gemma3:12b`. Edit `shield-claw/.env` to change `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, or cloud provider keys.
-
-5. Verify Docker and Compose are available and the daemon is running:
-
-   ```bash
-   docker compose version
-   docker ps
-   ```
-
-6. Pull the model and verify Ollama is reachable:
-
-   ```bash
-   ollama pull gemma3:12b
-   curl http://localhost:11434/api/tags
-   ```
-
-7. Run the unit tests:
-
-   ```bash
-   cd shield-claw
-   pytest tests/ -v
-   ```
-
-8. Run the pipeline against the bundled vulnerable Flask lab:
-
-   ```bash
-   python -m shieldclaw run \
-     --target ./test_repos/vulnerable-flask-app \
-     --timeout 120 \
-     --output report.json
-   ```
-
-   `report.json` is written to the current working directory. Drop `--output` to print JSON to stdout instead.
-
-   The lab app ships a [`context.patch`](./test_repos/vulnerable-flask-app/context.patch) file. Shield Claw loads it automatically when `.git` is absent. For real repositories, omit that file — the tool uses `git diff HEAD~1` or a path you supply via `--diff`.
-
-   The sample compose file does **not** publish host ports (avoids collisions on TCP 5000). The exploit reaches the app at `http://web:5000` on the internal Compose network.
-
----
-
-## Usage
-
-```bash
-# Default: Ollama with gemma3:12b, diff from git or context.patch fallback
-python -m shieldclaw run --target /path/to/repo
-
-# Explicit diff file
-python -m shieldclaw run --target /path/to/repo --diff my-change.patch
-
-# Cloud LLM backends (OpenAI / Anthropic — see Known Limitations)
-python -m shieldclaw run --target /path/to/repo --provider openai
-python -m shieldclaw run --target /path/to/repo --provider anthropic
-
-# Custom timeout and JSON output
-python -m shieldclaw run --target /path/to/repo --timeout 60 --output report.json
-```
-
-`is_vulnerable` is `true` when the LLM-generated exploit process exits with code `0`. JSON is written to **stdout** unless `--output` is set.
-
----
-
-## Sample output
-
-A successful detection against the bundled Flask lab (`gemma3:12b`, 54 seconds):
-
-```json
-{
-  "result_id": "c10274b7-5802-42eb-b328-080ca74a1414",
-  "is_vulnerable": true,
-  "exit_code": 0,
-  "duration_seconds": 54.23,
-  "pipeline_error": null,
-  "exploit_payload": {
-    "language": "python",
-    "target_dns": "web",
-    "execution_command": "python3 /exploit/exploit.py",
-    "raw_code": "import sys\nimport requests\n\ndef exploit():\n    url = 'http://web:5000/user?id=1'\n    response = requests.get(url)\n    if response.status_code == 200:\n        injection_url = 'http://web:5000/user?id=1OR1=1'\n        injection_response = requests.get(injection_url)\n        if '1' in injection_response.text:\n            print('SQL injection vulnerability confirmed!')\n            sys.exit(0)\n    sys.exit(1)\n\nif __name__ == '__main__':\n    exploit()"
-  },
-  "container_state": null
-}
-```
-
----
-
-## Model selection
-
-Model quality is the primary lever for exploit reliability. Tested locally with Ollama:
-
-| Model | Size | Result on lab | Notes |
-|-------|------|---------------|-------|
-| `gemma3:4b` | 4 B | ❌ False negative | Generated `request.args` (Flask server object) in the attacker script — `NameError` before first probe |
-| `gemma3:12b` | 12 B | ✅ Confirmed `is_vulnerable: true` | Correct SQLi payload, clean `sys.exit(0)` on success |
-| `llama3.1:8b` | 8 B | Not yet tested | — |
-| OpenAI / Anthropic | — | Not yet available | Providers are stub implementations in v1 (see Known Limitations) |
-
-**Recommendation:** Use `gemma3:12b` or larger for reliable results. Models below 10 B frequently produce syntactically broken scripts or copy server-side framework objects (`request`, `g`, `db`) into the attacker context where they do not exist.
-
-Set the model in `shield-claw/.env`:
-
-```
-OLLAMA_MODEL=gemma3:12b
-```
+Static analysis tools produce findings; they don't confirm exploitability.
+A typical scan of a medium-size codebase returns hundreds of findings, 30–60%
+of which are false positives that require manual triage. ShieldClaw automates
+the confirmation step: for each finding classified as dynamically verifiable,
+it attempts to exploit it. Exit code 0 + corroborating Tier-2 evidence
+(filesystem diff, server logs) produces `TRUE_POSITIVE` at 95% confidence.
+Exit code ≠ 0 produces `FALSE_POSITIVE`. Neither outcome trusts the exploit
+script alone.
 
 ---
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────┐
-│              shieldclaw/__main__.py              │
-│               (CLI entry point)                  │
-│        argparse → validate → dispatch            │
-└─────────────────┬───────────────────────────────┘
-                  │ depends on
-                  ▼
-┌─────────────────────────────────────────────────┐
-│               orchestrator.py                    │
-│          (Pipeline state machine)                │
-│    Drives: Context → LLM → Sandbox → Report     │
-└──┬──────────┬──────────┬──────────┬─────────────┘
-   │          │          │          │
-   ▼          ▼          ▼          ▼
-┌────────┐ ┌──────────┐ ┌────────┐ ┌──────────┐
-│context/│ │intelli-  │ │sandbox/│ │reporting/│
-│aggre-  │ │gence/    │ │docker_ │ │builder   │
-│gator   │ │ollama,   │ │orches- │ │          │
-│        │ │parser,   │ │trator  │ │          │
-│        │ │prompts   │ │        │ │          │
-└───┬────┘ └────┬─────┘ └───┬────┘ └────┬─────┘
-    │           │           │            │
-    ▼           ▼           ▼            ▼
-┌─────────────────────────────────────────────────┐
-│         models.py  +  exceptions.py              │
-│            (Shared data objects)                 │
-│         Zero internal dependencies               │
-└─────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    CLI["CLI\nshieldclaw run"] --> Ingest
+    CLI -.->|"--resume SCAN_ID"| DB[("SQLite\n.shieldclaw/scans.db")]
+
+    subgraph pipeline["Seven-stage SAST pipeline"]
+        Ingest["1. Ingest\nparse_semgrep_json()\nFinding × N"]
+        Ingest --> Triage
+        Triage["2. Triage\nCWE → DV / SO / OOS\nTriagedFinding × N"]
+        Triage --> Score
+        Score["3. Score\nLLM exploitability\nExploitabilityScore × N"]
+        Score --> Approve
+        Approve["4. Approve\nHITL gate\nAPPROVED / REJECTED"]
+        Approve --> PoC
+        PoC["5. PoC generate\nPocGenerator\nExploitPayload × N"]
+        PoC --> Detonate
+        Detonate["6. Detonate\nDockerOrchestrator\n+ Observer evidence"]
+        Detonate --> Verdict
+        Verdict["7. Verdict\nsynthesise(evidence)\nTRUE_POSITIVE / FP / INC"]
+    end
+
+    Ingest --- DB
+    Score --- DB
+    Approve --- DB
+    Verdict --- DB
+
+    style DB fill:#f5f5f5,stroke:#999
 ```
 
-The four feature modules (`context`, `intelligence`, `sandbox`, `reporting`) are **strictly isolated** — none imports from another. `models.py` and `exceptions.py` have zero internal imports. This constraint is enforced by `tests/test_architecture.py` on every test run.
+**Package layout** (strict isolation enforced by `tests/test_architecture.py`):
+
+```
+shieldclaw/
+├── ingest/        parse Semgrep JSON → Finding
+├── triage/        CWE-based classifier → TriagedFinding
+├── scoring/       LLM exploitability scorer → ExploitabilityScore
+├── approval/      HITL gate logic (pure; no DB imports)
+├── observer/      DetonationObserver protocol + Tier-1/2 evidence
+├── verdict/       Deterministic synthesis → Verdict
+├── persistence/   SQLite ScanStore (WAL mode, parameterised queries)
+├── intelligence/  LLMProvider ABC + OllamaProvider + OpenAIProvider
+├── sandbox/       DockerOrchestrator (compose + detonation)
+├── context/       Git diff + compose aggregator (v0.1 legacy)
+├── reporting/     JSON report builder (v0.1 legacy)
+├── models.py      All shared frozen dataclasses + ABCs
+├── exceptions.py  ShieldClawError hierarchy
+└── orchestrator.py  Cross-boundary wiring (only file permitted to do so)
+```
 
 ---
 
-## Security considerations
+## Quickstart
 
-- **Exploit execution** runs LLM-authored Python inside a **hardened** Docker container (`--read-only`, `--user=1000:1000`, `--memory=256m`, `--cpus=0.5`, `--pids-limit=100`, `tmpfs /tmp:noexec`). That materially reduces risk compared to running the same code on the host, but it does **not** reduce the risk to zero: **kernel-level container escape bugs** remain a residual threat class.
-- **Attacker container network access:** The attacker container runs `pip install requests urllib3 --target /tmp/pylib` to bootstrap HTTP capabilities. This grants outbound internet access to PyPI during detonation. A future version will pre-bake dependencies into the image to remove this trust boundary. See [ADR-005](shield-claw/docs/adrs/005-attacker-container-pypi-access.md) for the full trade-off analysis.
-- **Compose-backed targets** run on the same Docker daemon as your workstation. Only scan code you trust enough to run as containers on your machine.
-- **Cloud LLM providers** receive the full **git diff** and `docker-compose.yml` content. Treat that as **sensitive source code exposure** to a third party unless you keep inference entirely local with Ollama.
+```bash
+# 1. Clone
+git clone git@github.com:blondres04/shieldclaw.git
+cd shieldclaw
+
+# 2. Create a virtual environment (Python 3.11+)
+python3.11 -m venv .venv && source .venv/bin/activate
+
+# 3. Install the package + dev tools
+pip install -r shield-claw/requirements.txt \
+            -r shield-claw/requirements-dev.txt \
+            -e shield-claw/
+
+# 4. Install pre-commit hooks (ruff, mypy, arch-guard run on every commit)
+pre-commit install
+
+# 5. Build the pre-built attacker image (eliminates pip-at-detonation)
+cd shield-claw && bash scripts/build_attacker_image.sh && cd ..
+
+# 6. Run Semgrep against the bundled vulnerable Flask lab
+semgrep --config=auto \
+        --json \
+        -o /tmp/findings.json \
+        test_repos/vulnerable-flask-app/
+
+# 7. Run ShieldClaw end-to-end (auto-approve for demo; use without for HITL)
+SHIELDCLAW_AUTO_APPROVE=1 python -m shieldclaw run \
+    --target  test_repos/vulnerable-flask-app \
+    --semgrep-output /tmp/findings.json \
+    --provider ollama \
+    --timeout 60
+
+# 8. Check status
+python -m shieldclaw status
+```
+
+**Expected output (last line):**
+```
+TRUE_POSITIVE  (confidence=0.95)  python.flask.security.injection.tainted-sql-string
+```
 
 ---
 
-## Known limitations (v1)
+## Configuration
 
-- **Single-shot** exploit generation — no automatic retry or agentic refinement loop. Re-run manually if the first attempt produces a broken script.
-- **Target layout** — the scan expects a `docker-compose.yml` (or `.yaml`) at the repository root.
-- **No built-in CI/CD integration** — run the CLI manually or wrap it in your own pipeline.
-- **Python-only exploit payloads** — no other languages are generated or validated in v1.
-- **OpenAI and Anthropic providers are stubs** — `OpenAIProvider.generate_exploit` raises `LLMResponseError` unconditionally. Both providers validate connectivity only. Use Ollama until cloud providers are fully implemented.
-- **Sub-12B local models are unreliable** — empirically observed false negatives with `gemma3:4b` due to context confusion. Use `gemma3:12b` or larger.
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama daemon endpoint |
+| `OLLAMA_MODEL` | `gemma3:4b` | Model tag for Ollama |
+| `OPENAI_API_KEY` | — | Required when `--provider openai` |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for API-compatible endpoints |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model name for OpenAI |
+| `SHIELDCLAW_ATTACKER_IMAGE` | `ghcr.io/blondres04/shieldclaw-attacker:0.1` | Pre-built attacker image tag |
+| `SHIELDCLAW_AUTO_APPROVE` | — | Set to `1` to skip HITL gate (CI mode) |
+| `SHIELDCLAW_LOG_LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`) |
+
+### CLI flags — `shieldclaw run`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--target PATH` | required | Repository root containing `docker-compose.yml` |
+| `--semgrep-output PATH` | — | Semgrep `--json` report; enables SAST pipeline |
+| `--provider` | `ollama` | LLM backend (`ollama` or `openai`) |
+| `--timeout` | `15` | Detonation timeout in seconds (1–120) |
+| `--resume SCAN_ID` | — | Resume a previously interrupted scan |
+| `--output PATH` | stdout | JSON report sink |
+
+### CLI flags — `shieldclaw approve`
+
+| Flag | Description |
+|------|-------------|
+| `SCAN_ID FINDING_ID` | Approve a single finding |
+| `SCAN_ID --all-pending` | Approve / reject all awaiting findings (logs WARN) |
+| `SCAN_ID --auto` | Auto-approve all (requires `SHIELDCLAW_AUTO_APPROVE=1`) |
+| `--reject` | Reject instead of approve |
+| `--note TEXT` | Audit note recorded with the decision |
 
 ---
 
-## Repository layout
+## Architectural invariants
 
-| Path | Role |
-|------|------|
-| `shield-claw/` | Installable `shieldclaw` package, CLI, tests |
-| `test_repos/vulnerable-flask-app/` | Intentionally vulnerable Flask + Postgres demo for integration runs |
-| `evals/` | Standalone LLM JSON / refusal evaluation harness (does not import the app) |
-
----
-
-## Responsible use
-
-Use Shield Claw only against systems and repositories you own or are explicitly authorized to test. Generated exploits are real attack code.
+- **Module isolation**: `context`, `ingest`, `intelligence`, `approval`, `observer`, `persistence`, `reporting`, `sandbox`, `scoring`, `triage`, and `verdict` must not import from each other. Only `orchestrator.py` and `__main__.py` cross package boundaries. Enforced by static AST analysis in `tests/test_architecture.py`.
+- **Immutable data**: all inter-stage values are `@dataclass(frozen=True, slots=True)`. No mutable shared state.
+- **Subprocess discipline**: `subprocess.run` only (never `Popen`). Three canonical dispatchers in `docker_orchestrator.py`.
+- **Guarranteed teardown**: the `finally` block in `Orchestrator._run_legacy()` always runs teardown and report emission, even on unhandled exceptions.
+- **Docker hardening**: every attacker container runs with `--memory=256m --cpus=0.5 --pids-limit=100 --user=1000:1000 --read-only --tmpfs /tmp:rw,noexec,nosuid,size=32m`.
 
 ---
 
-## License
+## Limitations
 
-See [LICENSE](./LICENSE) in the repository root.
+- **No web UI**. ShieldClaw is a CLI tool. A REST API and web approval workflow are v0.3.
+- **Semgrep only**. SARIF (CodeQL, Snyk) and other SAST formats are v0.3.
+- **Triage classifier is rule-based**. CWE → verdict mapping covers 17 known CWEs. LLM-based triage and custom rule configuration are v0.3.
+- **Observer Tiers 3 and 4 not implemented**. Network capture (Tier 3) and application-layer assertions (Tier 4) are planned. `INCONCLUSIVE` verdicts are possible when the exploit produces no filesystem side-effect.
+- **Patch-and-verify loop not implemented**. ADRs 009 and 010 describe the design; Phase 5 implementation is pending.
+- **Anthropic provider is a stub**. `AnthropicProvider` will be implemented in v0.3 after the Claude API schema stabilises.
+- **Python-only exploit payloads**. The LLM is prompted to generate Python scripts exclusively. Multi-language exploit support is v0.3.
+- **Single compose stack per scan**. ShieldClaw does not yet support multi-repository or multi-service scan aggregation.
+
+---
+
+## License and responsible use
+
+See [LICENSE](./LICENSE) and [RESPONSIBLE_USE.md](./RESPONSIBLE_USE.md).
+
+Use ShieldClaw only against systems you own or are explicitly authorised to test.
+Generated exploits are real attack code that will be executed inside a Docker container.
