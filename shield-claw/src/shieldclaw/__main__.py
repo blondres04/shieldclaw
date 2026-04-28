@@ -7,9 +7,8 @@ Public API:
   - main(argv: list[str] | None = None) -> int
 Depends On:
   - dotenv (load_dotenv)
-  - shieldclaw.ingest (parse_semgrep_json)
   - shieldclaw.orchestrator (Orchestrator)
-  - shieldclaw.triage (classify)
+  - shieldclaw.persistence.store (ScanStore) — for status subcommand
 Used By:
   - Python runtime (python -m shieldclaw)
 Use Cases:
@@ -117,14 +116,7 @@ def validate_run_configuration(args: Namespace) -> None:
 
 
 def _print_triage_summary(semgrep_path: str) -> None:
-    """Ingest a Semgrep report, classify all findings, and print a summary to stderr.
-
-    This is a Phase 1 preview: the findings are not yet plumbed into the
-    orchestrator pipeline (that happens in Phase 2).
-
-    Args:
-        semgrep_path: Filesystem path to the Semgrep ``--json`` output file.
-    """
+    """Ingest a Semgrep report, classify all findings, and print a summary to stderr."""
     from shieldclaw.exceptions import IngestError
     from shieldclaw.ingest.semgrep import parse_semgrep_json
     from shieldclaw.triage.classifier import classify
@@ -151,12 +143,67 @@ def _print_triage_summary(semgrep_path: str) -> None:
     print("", file=sys.stderr)
 
 
+def _run_status(args: Namespace) -> int:
+    """Print a summary of all persisted scans to stdout.
+
+    If ``--scan-id`` is provided only that scan is shown; otherwise all scans
+    for the current working directory are listed, falling back to all scans
+    when none match.
+    """
+    from shieldclaw.persistence.store import ScanStore
+
+    target_dir = getattr(args, "target", None) or str(Path.cwd())
+    scan_id_filter: str | None = getattr(args, "scan_id", None)
+
+    store = ScanStore(target_dir)
+
+    if scan_id_filter:
+        row = store.load_scan(scan_id_filter)
+        scans = [row] if row is not None else []
+    else:
+        scans = store.list_scans(target_dir)
+        if not scans:
+            scans = store.list_scans()  # fall back to all scans
+
+    if not scans:
+        print("No persisted scans found.", file=sys.stderr)
+        return 0
+
+    col_w = (36, 30, 12, 24)
+    header = (
+        f"{'SCAN ID':<{col_w[0]}}  "
+        f"{'TARGET':<{col_w[1]}}  "
+        f"{'STATE':<{col_w[2]}}  "
+        f"{'CREATED':<{col_w[3]}}"
+    )
+    print(header)
+    print("-" * (sum(col_w) + 6))
+
+    for scan in scans:
+        counts = store.count_findings_by_state(scan.scan_id)
+        count_str = " ".join(f"{s}:{n}" for s, n in sorted(counts.items())) or "—"
+        target_short = (
+            scan.target_dir[-col_w[1] :] if len(scan.target_dir) > col_w[1] else scan.target_dir
+        )
+        print(
+            f"{scan.scan_id:<{col_w[0]}}  "
+            f"{target_short:<{col_w[1]}}  "
+            f"{scan.state:<{col_w[2]}}  "
+            f"{scan.created_at[:19]:<{col_w[3]}}"
+        )
+        print(f"  findings: {count_str}")
+
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
-    """Construct the top-level CLI parser with a ``run`` subcommand."""
+    """Construct the top-level CLI parser with ``run`` and ``status`` subcommands."""
     parser = _ShieldClawArgumentParser(
         prog="shieldclaw", description="ShieldClaw security scan pipeline."
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    # ---- run ----
     run = sub.add_parser("run", help="Run the vulnerability scan pipeline.")
     run.add_argument("--target", required=True, help="Path to the repository under test.")
     run.add_argument("--diff", default=None, help="Optional path to a unified diff patch file.")
@@ -166,10 +213,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="PATH",
         help=(
-            "Path to a Semgrep --json report.  Findings are triaged and printed to "
-            "stderr before the exploit pipeline runs.  Mutually exclusive with --diff "
-            "(both accepted in Phase 1 with a warning; Phase 2 will integrate findings)."
+            "Path to a Semgrep --json report.  Enables the SAST ingest→triage→score "
+            "pipeline with SQLite persistence.  Mutually exclusive with --diff "
+            "(both accepted with a warning)."
         ),
+    )
+    run.add_argument(
+        "--resume",
+        dest="resume_scan_id",
+        default=None,
+        metavar="SCAN_ID",
+        help="Resume a previously interrupted SAST scan by its UUID.",
     )
     run.add_argument(
         "--provider",
@@ -187,11 +241,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write JSON report to this path instead of stdout.",
     )
+
+    # ---- status ----
+    status = sub.add_parser(
+        "status",
+        help="List persisted scan runs and their finding state counts.",
+    )
+    status.add_argument(
+        "--target",
+        default=None,
+        help="Filter scans by target directory (defaults to cwd).",
+    )
+    status.add_argument(
+        "--scan-id",
+        dest="scan_id",
+        default=None,
+        help="Show details for a specific scan UUID.",
+    )
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse CLI arguments, validate inputs, and execute the orchestrator.
+    """Parse CLI arguments, validate inputs, and dispatch to the pipeline.
 
     Args:
         argv: Optional argument vector (defaults to ``sys.argv`` tail).
@@ -204,16 +276,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "status":
+        return _run_status(args)
+
     if args.command != "run":
         parser.error(f"unknown command {args.command!r}")
 
-    # Warn when --diff and --semgrep-output are both supplied.
     semgrep_output: str | None = getattr(args, "semgrep_output", None)
+    resume_scan_id: str | None = getattr(args, "resume_scan_id", None)
+
+    # Warn when --diff and --semgrep-output are both supplied.
     if args.diff is not None and semgrep_output is not None:
         _LOG.warning(
             "--diff and --semgrep-output were both supplied.  "
-            "In Phase 1 both are accepted; Phase 2 will integrate findings into the "
-            "pipeline and may change this behaviour."
+            "Findings are integrated in SAST mode; diff is used for legacy detonation only."
         )
 
     try:
@@ -222,17 +298,19 @@ def main(argv: list[str] | None = None) -> int:
         print(exc.message, file=sys.stderr)
         return 1
 
-    # Phase 1: ingest and triage before the exploit pipeline.
-    if semgrep_output is not None:
+    # Phase 1 triage summary (when not using full SAST pipeline via orchestrator yet).
+    if semgrep_output is not None and resume_scan_id is None:
         _print_triage_summary(semgrep_output)
 
     try:
         Orchestrator().run(
-            str(Path(args.target).expanduser().resolve()),
-            args.diff,
-            str(args.provider).lower(),
-            int(args.timeout),
-            args.output,
+            target_dir=str(Path(args.target).expanduser().resolve()),
+            diff_path=args.diff,
+            provider_name=str(args.provider).lower(),
+            timeout=int(args.timeout),
+            output_path=args.output,
+            semgrep_output=semgrep_output,
+            resume_scan_id=resume_scan_id,
         )
     except Exception as exc:  # noqa: BLE001 - CLI safety net per product spec
         _LOG.critical("Unhandled failure during orchestration: %s", exc, exc_info=True)

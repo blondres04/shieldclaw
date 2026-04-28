@@ -67,6 +67,22 @@ def _is_refusal_response(raw: str) -> bool:
     return _contains_refusal_marker(raw)
 
 
+def strip_json_fences(raw: str) -> str:
+    """Remove optional ``` / ```json fences and isolate the JSON object text.
+
+    This is the public surface used by modules outside ``intelligence/``
+    (e.g. ``scoring/``) that need to extract JSON from LLM responses without
+    going through the full exploit-parsing pipeline.
+
+    Args:
+        raw: Raw LLM output, potentially wrapped in markdown code fences.
+
+    Returns:
+        Candidate JSON string with fences and surrounding whitespace removed.
+    """
+    return _strip_markdown_fences(raw)
+
+
 def _strip_markdown_fences(raw: str) -> str:
     """Remove optional ``` / ```json fences and isolate JSON object text."""
     text = raw.strip()

@@ -39,6 +39,11 @@ from enum import Enum
 from typing import Literal
 from uuid import UUID
 
+# ---------------------------------------------------------------------------
+# Sentinel value re-used across scoring and persistence layers.
+# ---------------------------------------------------------------------------
+_ATTACK_SURFACE = Literal["NETWORK", "FILE", "ENV", "OTHER"]
+
 
 class ContainerStatus(Enum):
     """Allowed lifecycle values for a sandbox attacker container."""
@@ -178,3 +183,47 @@ class TriagedFinding:
     finding: Finding
     verdict: TriageVerdict
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExploitabilityScore:
+    """LLM-assigned exploitability assessment for a single SAST finding.
+
+    Args:
+        score: Normalised exploitability probability in the range [0.0, 1.0].
+            Higher values indicate higher confidence that the finding is
+            exploitable in the described environment.
+        attack_surface: How the vulnerability would be reached.
+            ``NETWORK`` — via HTTP/WebSocket/RPC.
+            ``FILE`` — via a crafted file upload or local path.
+            ``ENV`` — via an environment variable or configuration value.
+            ``OTHER`` — any other attack vector.
+        prerequisites: Ordered list of preconditions an attacker must satisfy
+            before exploitation is possible (e.g. "authenticated user").
+        reasoning: One-sentence rationale for the assigned score.
+        model_name: Identifier of the LLM that produced this score.
+        scored_at: UTC timestamp when the scoring call completed.
+    """
+
+    score: float
+    attack_surface: Literal["NETWORK", "FILE", "ENV", "OTHER"]
+    prerequisites: tuple[str, ...]
+    reasoning: str
+    model_name: str
+    scored_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ScoredFinding:
+    """A ``TriagedFinding`` paired with an optional exploitability score.
+
+    ``score`` is ``None`` for ``STATIC_ONLY`` and ``OUT_OF_SCOPE`` findings
+    because calling the LLM for unverifiable findings wastes tokens.
+
+    Args:
+        triaged: The triaged finding this score is associated with.
+        score: LLM-assigned score, or ``None`` when not applicable.
+    """
+
+    triaged: TriagedFinding
+    score: ExploitabilityScore | None
