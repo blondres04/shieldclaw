@@ -372,6 +372,151 @@ class ScanStore:
             for r in rows
         ]
 
+    # ------------------------------------------------------------------
+    # Approvals
+    # ------------------------------------------------------------------
+
+    def record_approval(
+        self,
+        finding_id: str,
+        decision: str,
+        decided_by: str,
+        *,
+        note: str | None = None,
+        auto: bool = False,
+    ) -> None:
+        """Persist an approval or rejection decision for a finding."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO approvals
+                    (finding_id, decision, decided_by, decided_at, note, auto)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (finding_id, decision, decided_by, self._now(), note, int(auto)),
+            )
+
+    def get_approval(self, finding_id: str) -> dict[str, object] | None:
+        """Return the approval record for a finding, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM approvals WHERE finding_id = ?", (finding_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    # ------------------------------------------------------------------
+    # PoCs
+    # ------------------------------------------------------------------
+
+    def record_poc(
+        self,
+        poc_id: str,
+        finding_id: str,
+        raw_code: str,
+        target_dns: str,
+        execution_command: str,
+        language: str,
+        model_name: str,
+        iteration: int = 1,
+    ) -> None:
+        """Persist a generated proof-of-concept exploit."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO pocs
+                    (poc_id, finding_id, raw_code, target_dns,
+                     execution_command, language, generated_at, model_name, iteration)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    poc_id,
+                    finding_id,
+                    raw_code,
+                    target_dns,
+                    execution_command,
+                    language,
+                    self._now(),
+                    model_name,
+                    iteration,
+                ),
+            )
+
+    def get_poc_for_finding(self, finding_id: str) -> dict[str, object] | None:
+        """Return the latest PoC for a finding (highest iteration), or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM pocs WHERE finding_id = ? ORDER BY iteration DESC LIMIT 1",
+                (finding_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    # ------------------------------------------------------------------
+    # Evidence
+    # ------------------------------------------------------------------
+
+    def record_evidence(
+        self,
+        evidence_id: str,
+        finding_id: str,
+        observer_name: str,
+        tier: int,
+        summary: str,
+        payload_json: str,
+        captured_at: str,
+    ) -> None:
+        """Persist a single piece of observer evidence."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO evidence
+                    (evidence_id, finding_id, observer_name, tier,
+                     summary, payload_json, captured_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (evidence_id, finding_id, observer_name, tier, summary, payload_json, captured_at),
+            )
+
+    def get_evidence_for_finding(self, finding_id: str) -> list[dict[str, object]]:
+        """Return all evidence records for a finding."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM evidence WHERE finding_id = ? ORDER BY captured_at",
+                (finding_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Verdicts
+    # ------------------------------------------------------------------
+
+    def record_verdict(
+        self,
+        finding_id: str,
+        verdict: str,
+        confidence: float,
+        summary: str,
+    ) -> None:
+        """Persist the synthesised verdict for a finding."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO verdicts
+                    (finding_id, verdict, confidence, summary, decided_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (finding_id, verdict, confidence, summary, self._now()),
+            )
+
+    def get_verdict(self, finding_id: str) -> dict[str, object] | None:
+        """Return the verdict for a finding, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM verdicts WHERE finding_id = ?", (finding_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     def count_findings_by_state(self, scan_id: str) -> dict[str, int]:
         """Return a ``{state: count}`` map for all findings in a scan.
 
