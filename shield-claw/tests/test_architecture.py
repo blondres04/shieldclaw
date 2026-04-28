@@ -7,14 +7,17 @@ from pathlib import Path
 from typing import Final
 
 _FEATURE_MODULES: Final[tuple[str, ...]] = (
+    "approval",
     "context",
     "ingest",
     "intelligence",
+    "observer",
     "persistence",
     "reporting",
     "sandbox",
     "scoring",
     "triage",
+    "verdict",
 )
 _ALLOWED_SHIELDCLAW_LEAVES: Final[frozenset[str]] = frozenset({"models", "exceptions"})
 

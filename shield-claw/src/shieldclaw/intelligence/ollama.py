@@ -11,7 +11,7 @@ import httpx
 from shieldclaw.exceptions import LLMConnectionError, LLMResponseError
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.parser import parse_llm_response
-from shieldclaw.intelligence.prompts import SYSTEM_PROMPT, build_user_prompt
+from shieldclaw.intelligence.prompts import SYSTEM_PROMPT, build_diff_prompt
 from shieldclaw.models import ExploitPayload, ScanContext
 
 _LOG = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class OllamaProvider(LLMProvider):
             LLMRefusalError: Propagated from the parser when safety heuristics match.
             LLMResponseError: When the HTTP payload is malformed or parsing fails.
         """
-        user_prompt = build_user_prompt(context)
+        user_prompt = build_diff_prompt(context)
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": [
