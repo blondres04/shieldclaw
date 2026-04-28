@@ -37,6 +37,7 @@ from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import SandboxStartError, ShieldClawError
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.ollama import OllamaProvider
+from shieldclaw.intelligence.openai_provider import OpenAIProvider
 from shieldclaw.models import (
     DetonationOutcome,
     ExploitPayload,
@@ -136,11 +137,14 @@ def _finding_from_row(row: object) -> Finding:
 def default_provider_factory(provider_name: str) -> LLMProvider:
     """Construct the default ``LLMProvider`` for a CLI name.
 
-    Only ``ollama`` is available until Phase 4 implements hosted providers.
+    Supported providers: ``ollama`` (local) and ``openai`` (hosted, requires
+    ``OPENAI_API_KEY``).
     """
     match provider_name.lower():
         case "ollama":
             return OllamaProvider()
+        case "openai":
+            return OpenAIProvider()
         case _:
             raise ValueError(f"Unknown LLM provider: {provider_name!r}")
 

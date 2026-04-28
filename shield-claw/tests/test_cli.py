@@ -90,7 +90,7 @@ def test_validate_rejects_invalid_provider(tmp_path: Path) -> None:
     """Unknown providers must be rejected explicitly."""
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     args = _run_namespace(target=str(tmp_path), provider="unknown")
-    with pytest.raises(CLIValidationError, match="supported in this release"):
+    with pytest.raises(CLIValidationError, match="Provider must be one of"):
         validate_run_configuration(args)
 
 
