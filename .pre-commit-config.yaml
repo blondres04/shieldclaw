@@ -1,0 +1,41 @@
+# Pre-commit hooks for ShieldClaw.
+#
+# Install:  pip install pre-commit  &&  pre-commit install
+# Run all:  pre-commit run --all-files
+#
+# The Python package lives under shield-claw/; hooks that care about
+# project config (mypy, pytest) chdir into that tree before running.
+
+repos:
+  # ---------------------------------------------------------------------------
+  # Ruff — formatter + linter (official pre-commit hooks)
+  # ---------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-format
+        files: ^shield-claw/
+      - id: ruff
+        args: [--fix]
+        files: ^shield-claw/
+
+  # ---------------------------------------------------------------------------
+  # Local hooks — require the dev venv to be active (pre-commit language: system)
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict)
+        language: system
+        # Run from the package root so pyproject.toml [tool.mypy] is picked up.
+        entry: bash -c 'cd shield-claw && python -m mypy src/'
+        pass_filenames: false
+        types: [python]
+
+      - id: arch-guard
+        name: architecture guard
+        language: system
+        # Fail fast: only the isolation test; full suite runs in CI.
+        entry: bash -c 'cd shield-claw && python -m pytest tests/test_architecture.py -q'
+        pass_filenames: false
+        types: [python]
