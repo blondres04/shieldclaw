@@ -23,6 +23,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "integration: marks tests as integration tests requiring a running Docker daemon (deselect with '-m \"not integration\"')",
+]
 
 # ---------------------------------------------------------------------------
 # Ruff — linting + formatting
