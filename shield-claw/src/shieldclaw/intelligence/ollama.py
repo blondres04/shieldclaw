@@ -82,6 +82,41 @@ class OllamaProvider(LLMProvider):
         _LOG.debug("Raw Ollama response: %s", raw)
         return parse_llm_response(raw)
 
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        """Send a chat pair and return the raw assistant text.
+
+        Args:
+            system_prompt: System role instructions.
+            user_prompt: User-turn content.
+
+        Returns:
+            Verbatim assistant message string.
+
+        Raises:
+            LLMConnectionError: When the Ollama daemon is unreachable.
+            LLMResponseError: When the response body is malformed.
+        """
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        url = f"{self._base_url}/api/chat"
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.post(url, json=payload)
+                response.raise_for_status()
+                body = response.json()
+        except httpx.HTTPError as exc:
+            raise LLMConnectionError("Unable to reach the Ollama HTTP API.") from exc
+        except ValueError as exc:
+            raise LLMResponseError("Ollama returned non-JSON content.") from exc
+        return self._extract_assistant_text(body)
+
     @staticmethod
     def _extract_assistant_text(body: dict[str, Any]) -> str:
         """Pull assistant text from an Ollama chat response envelope.
