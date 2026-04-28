@@ -1,7 +1,7 @@
 """
 File:        src/shieldclaw/models.py
 Purpose:     Shared immutable dataclasses representing scan inputs, exploit payloads,
-             container state, and scan results.
+             container state, scan results, and SAST findings with triage verdicts.
 Public API:
   - ContainerStatus (Enum: PENDING, RUNNING, STOPPED, FAILED)
   - ExploitPayload (frozen dataclass: payload_id, raw_code, target_dns, execution_command, language)
@@ -9,21 +9,26 @@ Public API:
   - ScanResult (frozen dataclass: result_id, exit_code, is_vulnerable, pipeline_error,
                 duration_seconds, exploit_payload, container_state)
   - ScanContext (frozen dataclass: target_dir, git_diff_content, docker_compose_content, timestamp)
+  - Finding (frozen dataclass: finding_id, rule_id, severity, path, start_line, end_line,
+             message, cwe, metavars, raw_extra)
+  - TriageVerdict (Enum: DYNAMICALLY_VERIFIABLE, STATIC_ONLY, OUT_OF_SCOPE)
+  - TriagedFinding (frozen dataclass: finding, verdict, reason)
 Depends On:
-  - stdlib only (dataclasses, datetime, enum, uuid)
+  - stdlib only (dataclasses, datetime, enum, typing, uuid)
 Used By:
   - src/shieldclaw/orchestrator.py
   - src/shieldclaw/context/aggregator.py
   - src/shieldclaw/intelligence/base.py
   - src/shieldclaw/intelligence/ollama.py
-  - src/shieldclaw/intelligence/openai_provider.py
-  - src/shieldclaw/intelligence/anthropic_provider.py
   - src/shieldclaw/intelligence/parser.py
   - src/shieldclaw/intelligence/prompts.py
   - src/shieldclaw/sandbox/docker_orchestrator.py
   - src/shieldclaw/reporting/builder.py
+  - src/shieldclaw/ingest/semgrep.py
+  - src/shieldclaw/triage/classifier.py
 Use Cases:
   - SCAN-001 (Run Vulnerability Scan)
+  - SCAN-002 (Ingest and Triage SAST Findings)
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import UUID
 
 
@@ -115,3 +121,60 @@ class ScanContext:
     git_diff_content: str
     docker_compose_content: str
     timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class Finding:
+    """A single SAST finding produced by ingesting a Semgrep JSON report.
+
+    All fields are immutable.  ``metavars`` is a plain ``dict`` — callers must
+    not mutate it; a future phase will convert it to a ``MappingProxyType``.
+
+    Args:
+        finding_id: Deterministic UUID derived from rule_id + path + line numbers
+            via ``uuid.uuid5(NAMESPACE_URL, ...)``.
+        rule_id: Fully-qualified Semgrep check identifier (e.g. ``python.flask.sqli``).
+        severity: One of ``"INFO"``, ``"WARNING"``, or ``"ERROR"`` (normalised from
+            Semgrep's ``extra.severity`` field).
+        path: File path relative to the scanned repository root.
+        start_line: 1-based line number where the finding starts.
+        end_line: 1-based line number where the finding ends.
+        message: Human-readable description from ``extra.message``.
+        cwe: Tuple of CWE identifiers (e.g. ``("CWE-89",)``); empty when absent.
+        metavars: Flattened map of metavariable name → ``abstract_content`` string.
+        raw_extra: JSON-serialised original ``extra`` field, retained for debugging.
+    """
+
+    finding_id: UUID
+    rule_id: str
+    severity: Literal["INFO", "WARNING", "ERROR"]
+    path: str
+    start_line: int
+    end_line: int
+    message: str
+    cwe: tuple[str, ...]
+    metavars: dict[str, str]
+    raw_extra: str
+
+
+class TriageVerdict(Enum):
+    """Classification of a SAST finding by whether it can be dynamically verified."""
+
+    DYNAMICALLY_VERIFIABLE = "DYNAMICALLY_VERIFIABLE"
+    STATIC_ONLY = "STATIC_ONLY"
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
+
+
+@dataclass(frozen=True, slots=True)
+class TriagedFinding:
+    """A ``Finding`` annotated with a triage verdict and human-readable reason.
+
+    Args:
+        finding: The underlying SAST finding.
+        verdict: Triage classification produced by the classifier.
+        reason: Short explanation of why this verdict was assigned.
+    """
+
+    finding: Finding
+    verdict: TriageVerdict
+    reason: str

@@ -66,3 +66,7 @@ class SandboxStartError(ShieldClawError):
 
 class DetonationError(ShieldClawError):
     """Raised when controlled execution of a payload fails unexpectedly."""
+
+
+class IngestError(ShieldClawError):
+    """Raised when a SAST report cannot be parsed or is structurally invalid."""
