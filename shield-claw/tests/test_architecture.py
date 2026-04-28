@@ -10,11 +10,24 @@ _FEATURE_MODULES: Final[tuple[str, ...]] = (
     "context",
     "ingest",
     "intelligence",
+    "persistence",
     "reporting",
     "sandbox",
+    "scoring",
     "triage",
 )
 _ALLOWED_SHIELDCLAW_LEAVES: Final[frozenset[str]] = frozenset({"models", "exceptions"})
+
+# Documented allowlist for necessary cross-feature imports.
+# Each entry is (home_feature, imported_feature).
+# scoring/ uses LLMProvider (intelligence.base) and strip_json_fences (intelligence.parser).
+# All other cross-feature imports remain prohibited.
+# See pending ADR (Phase 6) for architectural rationale.
+_CROSS_FEATURE_ALLOWLIST: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("scoring", "intelligence"),
+    }
+)
 
 
 def _shieldclaw_src_root() -> Path:
@@ -68,14 +81,23 @@ def _violates_cross_feature(
     resolved: str,
     home_feature: str,
 ) -> bool:
-    """Return True if ``resolved`` refers to a different feature module."""
+    """Return True if ``resolved`` refers to a different feature module.
+
+    Entries in ``_CROSS_FEATURE_ALLOWLIST`` bypass the normal prohibition
+    so that documented, narrowly scoped cross-feature dependencies are
+    accepted without tripping the isolation test.
+    """
     top = _shieldclaw_top_after_prefix(resolved)
     if top is None:
         return False
     if top in _ALLOWED_SHIELDCLAW_LEAVES:
         return False
     if top in _FEATURE_MODULES:
-        return top != home_feature
+        if top == home_feature:
+            return False
+        if (home_feature, top) in _CROSS_FEATURE_ALLOWLIST:
+            return False
+        return True
     return False
 
 
