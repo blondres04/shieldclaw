@@ -28,7 +28,7 @@ import pytest
 _SCRIPT_DIR = Path(__file__).resolve().parents[1]
 _DOCKERFILE = _SCRIPT_DIR / "docker" / "attacker.Dockerfile"
 
-_DEFAULT_TAG = os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", "shieldclaw-attacker:test-phase4")
+_DEFAULT_TAG = os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", "shieldclaw-attacker:test")
 
 
 def _docker_available() -> bool:

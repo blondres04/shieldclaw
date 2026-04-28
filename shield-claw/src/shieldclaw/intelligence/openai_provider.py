@@ -62,7 +62,7 @@ def _looks_like_refusal(text: str) -> bool:
 class OpenAIProvider(LLMProvider):
     """OpenAI Chat Completions provider.
 
-    Phase 4 replaces the v0.1 stub with a real implementation that uses the
+    v0.2 replaces the v0.1 stub with a real implementation that uses the
     ``/v1/chat/completions`` endpoint, requests JSON output mode when the
     model supports it, and reuses the existing ``parse_llm_response`` parser.
 

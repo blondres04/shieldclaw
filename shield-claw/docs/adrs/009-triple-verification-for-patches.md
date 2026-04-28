@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (implementation pending — Phase 5) — 2026-04-28
+Accepted (implementation pending — v0.3) — 2026-04-28
 
 ## Context
 
-Phase 5 will add a patch-and-verify loop: when a `TRUE_POSITIVE` verdict is
+The v0.3 patch-and-verify loop will trigger when a `TRUE_POSITIVE` verdict is
 confirmed, ShieldClaw generates a fix, applies it to an isolated worktree, and
 re-detonates to confirm the exploit no longer succeeds.
 

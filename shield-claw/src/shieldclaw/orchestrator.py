@@ -173,7 +173,7 @@ class Orchestrator:
         timeout: int = 15,
         output_path: str | None = None,
         *,
-        # keyword-only extras (Phase 2+)
+        # keyword-only SAST pipeline extras
         semgrep_output: str | None = None,
         resume_scan_id: str | None = None,
         # allow old positional callers to pass target_dir positionally
@@ -223,7 +223,7 @@ class Orchestrator:
         )
 
     # ------------------------------------------------------------------
-    # SAST path (Phase 2)
+    # SAST pipeline path
     # ------------------------------------------------------------------
 
     def _run_sast(
@@ -304,7 +304,7 @@ class Orchestrator:
                     )
                 store.update_finding_state(row.finding_id, "SCORED")
 
-            # Phase 3: auto-approve → PoC generate → detonate → verdict
+            # Auto-approve gate → PoC generate → detonate → verdict
             # Only runs when SHIELDCLAW_AUTO_APPROVE=1 is set.
             # Without it the pipeline stops here (findings stay SCORED).
             if is_auto_approve_enabled():

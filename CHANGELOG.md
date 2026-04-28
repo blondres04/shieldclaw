@@ -8,8 +8,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- Phase 5 — Patch-and-verify loop with triple verification
-  (`remediation/`) — pending implementation.
+- Patch-and-verify loop with triple verification — pending implementation (see v0.3 backlog).
 
 ---
 
@@ -17,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-**Phase 0 — Pre-flight debt** ([#22](https://github.com/blondres04/shieldclaw/issues/22))
+**Sandbox isolation and healthcheck readiness** ([#22](https://github.com/blondres04/shieldclaw/issues/22))
 - `_cleanup_stale(result_id)` scoped to the calling run's label; prevents
   concurrent runs from destroying each other's containers.
 - `_is_service_healthy()` probes `docker inspect Health.Status`; replaces
@@ -27,7 +26,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `pytest-cov` added to `requirements-dev.txt`.
 - `integration` marker registered in `pyproject.toml`.
 
-**Phase 1 — Semgrep ingest and triage classifier** ([#23](https://github.com/blondres04/shieldclaw/issues/23))
+**Semgrep ingest pipeline and CWE-based triage classifier** ([#23](https://github.com/blondres04/shieldclaw/issues/23))
 - `ingest/` package: `parse_semgrep_json(path) -> tuple[Finding, ...]`.
   Validates schema, normalises CWE strings, flattens metavars, derives
   `finding_id` via `uuid5(NAMESPACE_URL, rule:path:start:end)`.
@@ -35,11 +34,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   deterministic classifier covering 17 CWEs; OUT_OF_SCOPE for infra/secret rules.
 - `Finding`, `TriageVerdict`, `TriagedFinding` frozen dataclasses in `models.py`.
 - `IngestError(ShieldClawError)` in `exceptions.py`.
-- `--semgrep-output PATH` CLI flag; Phase 1 triage summary printed to stderr.
+- `--semgrep-output PATH` CLI flag; triage summary printed to stderr.
 - `tests/fixtures/semgrep_sample.json` — 5-finding realistic fixture.
 - 53 new tests (22 ingest, 31 triage).
 
-**Phase 2 — LLM scoring and resumable persistence** ([#24](https://github.com/blondres04/shieldclaw/issues/24))
+**LLM exploitability scoring with resumable SQLite persistence** ([#24](https://github.com/blondres04/shieldclaw/issues/24))
 - `ExploitabilityScore`, `ScoredFinding` frozen dataclasses in `models.py`.
 - `LLMProvider.complete(system_prompt, user_prompt) -> str` abstract method;
   implemented in `OllamaProvider`.
@@ -54,7 +53,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   cross-feature import.
 - 5 resumability tests; `test_resume_skips_already_scored_findings` milestone.
 
-**Phase 3 — HITL gate, PoC generator, observers, verdict synthesis** ([#25](https://github.com/blondres04/shieldclaw/issues/25))
+**HITL approval gate, proof-of-concept generator, tiered observer evidence, verdict synthesis** ([#25](https://github.com/blondres04/shieldclaw/issues/25))
 - `approval/` package: `is_auto_approve_enabled()`, `get_current_user()`,
   `ApprovalContext`, `format_approval_context()`.
 - Schema additions: `approvals`, `pocs`, `evidence`, `verdicts` tables.
@@ -68,12 +67,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `observers: Sequence[DetonationObserver]`.
 - `verdict/` package: `synthesize(evidence) -> Verdict` with five deterministic
   rules (TRUE_POSITIVE / FALSE_POSITIVE / INCONCLUSIVE).
-- `Orchestrator._run_sast()` Phase 3 extension: auto-approve gate, PoC
+- `Orchestrator._run_sast()` extended: auto-approve gate, PoC
   generation, detonation, verdict synthesis — all behind `SHIELDCLAW_AUTO_APPROVE=1`.
 - `test_pipeline_e2e.py` integration test (requires Docker).
 - Architecture guard: 11 packages in `_FEATURE_MODULES`.
 
-**Phase 4 — OpenAI provider and pre-built attacker image** ([#26](https://github.com/blondres04/shieldclaw/issues/26))
+**OpenAI Chat Completions provider and pre-built attacker Docker image** ([#26](https://github.com/blondres04/shieldclaw/issues/26))
 - `intelligence/openai_provider.py`: real `/v1/chat/completions` implementation;
   `response_format={"type":"json_object"}` for supported models; refusal detection.
 - `openai` added to `_ALLOWED_PROVIDERS`; `default_provider_factory` updated.
@@ -86,9 +85,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `SHIELDCLAW_ATTACKER_IMAGE` env-var override for image tag.
 - 10 OpenAI provider unit tests; 3 sealed-network integration tests.
 
-**Phase 6 — Documentation and onboarding** ([#28](https://github.com/blondres04/shieldclaw/issues/28))
+**ADR ratification, README rewrite, contributor onboarding** ([#28](https://github.com/blondres04/shieldclaw/issues/28))
 - ADRs 001–005 promoted from placeholder to full ADRs.
-- ADR-005 updated to reflect Phase 4 pre-built image superseding the original
+- ADR-005 updated to reflect the pre-built image (v0.2) superseding the original
   "accept PyPI access" decision.
 - ADRs 006–010 added (Semgrep input, HITL model, observer tiers, triple
   verification, ephemeral worktrees).

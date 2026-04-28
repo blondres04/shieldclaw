@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by Phase 4 pre-built image — 2026-04-28
+Superseded by the pre-built attacker image — 2026-04-28
 
 The original decision (accept PyPI access for MVP) has been superseded.
 `docker/attacker.Dockerfile` now bakes `requests` and `urllib3` at build time.
@@ -23,7 +23,7 @@ This grants the attacker container outbound internet access to PyPI —
 outside the original Trust Boundary 3 analysis that assumed the attacker
 only communicates with compose-internal services.
 
-## Phase 4 Decision (2026-04-28)
+## v0.2 Decision (2026-04-28)
 
 Implement a pre-built attacker image (`docker/attacker.Dockerfile`):
 

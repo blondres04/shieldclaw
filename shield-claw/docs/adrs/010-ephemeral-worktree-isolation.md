@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted (implementation pending — Phase 5) — 2026-04-28
+Accepted (implementation pending — v0.3) — 2026-04-28
 
 ## Context
 
-Phase 5's patch-and-verify loop must apply a generated fix to the target
+The v0.3 patch-and-verify loop must apply a generated fix to the target
 repository and rebuild the compose stack to test whether the exploit still
 succeeds. The patch must not:
 - Modify the user's working tree (they may have uncommitted changes).
@@ -24,7 +24,7 @@ After verification (success or failure), `git worktree remove --force <temp_dir>
 cleans up. The main working tree is never touched.
 
 The worktree lives in `<target_dir>/.shieldclaw/worktrees/<finding_id>/`.
-Because `.shieldclaw/` is gitignored (see Phase 2 gitignore update),
+Because `.shieldclaw/` is gitignored (added in v0.2),
 the worktrees are never staged or committed by accident.
 
 ## Consequences

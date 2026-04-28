@@ -51,7 +51,7 @@ phase-N/short-slug           ← phase feature branch (cut from pivot trunk)
 fix/description              ← bug fix (cut from pivot trunk or phase branch)
 ```
 
-Example: `phase-1/semgrep-ingest`, `fix/sarif-parser-empty-results`.
+Example: `feat/semgrep-ingest`, `fix/sarif-parser-empty-results`.
 
 All phase branches are squash-merged back to `pivot/sast-verifier` when
 the phase's verification milestone passes.

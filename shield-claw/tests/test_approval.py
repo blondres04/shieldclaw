@@ -86,7 +86,7 @@ def test_rejected_finding_is_skipped(tmp_path: Path) -> None:
 
     provider = _ProviderThatScores()
 
-    # Phase 1: score all findings, stop at AWAITING_APPROVAL.
+    # Score all findings, stop at AWAITING_APPROVAL state.
     with patch.dict(os.environ, {"SHIELDCLAW_AUTO_APPROVE": ""}, clear=False):
         orch = Orchestrator(provider_factory=lambda _: provider)
         orch.run(

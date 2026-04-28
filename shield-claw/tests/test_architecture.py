@@ -25,7 +25,7 @@ _ALLOWED_SHIELDCLAW_LEAVES: Final[frozenset[str]] = frozenset({"models", "except
 # Each entry is (home_feature, imported_feature).
 # scoring/ uses LLMProvider (intelligence.base) and strip_json_fences (intelligence.parser).
 # All other cross-feature imports remain prohibited.
-# See pending ADR (Phase 6) for architectural rationale.
+# See ADR-008 for the architectural rationale behind this allowlist.
 _CROSS_FEATURE_ALLOWLIST: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("scoring", "intelligence"),

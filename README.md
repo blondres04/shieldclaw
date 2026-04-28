@@ -177,7 +177,7 @@ TRUE_POSITIVE  (confidence=0.95)  python.flask.security.injection.tainted-sql-st
 - **Semgrep only**. SARIF (CodeQL, Snyk) and other SAST formats are v0.3.
 - **Triage classifier is rule-based**. CWE → verdict mapping covers 17 known CWEs. LLM-based triage and custom rule configuration are v0.3.
 - **Observer Tiers 3 and 4 not implemented**. Network capture (Tier 3) and application-layer assertions (Tier 4) are planned. `INCONCLUSIVE` verdicts are possible when the exploit produces no filesystem side-effect.
-- **Patch-and-verify loop not implemented**. ADRs 009 and 010 describe the design; Phase 5 implementation is pending.
+- **Patch-and-verify loop not implemented**. ADRs 009 and 010 describe the design; implementation is pending.
 - **Anthropic provider is a stub**. `AnthropicProvider` will be implemented in v0.3 after the Claude API schema stabilises.
 - **Python-only exploit payloads**. The LLM is prompted to generate Python scripts exclusively. Multi-language exploit support is v0.3.
 - **Single compose stack per scan**. ShieldClaw does not yet support multi-repository or multi-service scan aggregation.

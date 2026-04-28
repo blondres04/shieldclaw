@@ -52,7 +52,7 @@ approach shipped in v0.1.
 - Hardening flags are enforced at the lowest possible level (Docker); they
   cannot be overridden by exploit code.
 - Residual kernel-escape risk is documented rather than silently accepted.
-- The result-ID scoping fix (Phase 0) enables safe concurrent usage.
+- The result-ID scoping fix (v0.2) enables safe concurrent usage.
 
 **Negative**
 - Requires a Docker daemon. No Podman or containerd support in v0.2.

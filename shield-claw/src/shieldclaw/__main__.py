@@ -32,7 +32,7 @@ from shieldclaw.orchestrator import Orchestrator
 
 _COMPOSE_NAMES: Final[tuple[str, ...]] = ("docker-compose.yml", "docker-compose.yaml")
 # ollama: local inference; openai: hosted via OPENAI_API_KEY.
-# anthropic remains Phase 4 pending (stub only).
+# Anthropic provider is not yet implemented; planned for v0.3.
 _ALLOWED_PROVIDERS: Final[frozenset[str]] = frozenset({"ollama", "openai"})
 _LOG = logging.getLogger(__name__)
 
@@ -458,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
         print(exc.message, file=sys.stderr)
         return 1
 
-    # Phase 1 triage summary (when not using full SAST pipeline via orchestrator yet).
+    # Print triage summary before the full orchestrator SAST pipeline runs.
     if semgrep_output is not None and resume_scan_id is None:
         _print_triage_summary(semgrep_output)
 

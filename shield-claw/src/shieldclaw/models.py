@@ -308,7 +308,7 @@ class DetonationObserver(ABC):
 
 @dataclass(frozen=True, slots=True)
 class DetonationOutcome:
-    """Result returned by ``DockerOrchestrator.detonate()`` in Phase 3+.
+    """Result returned by ``DockerOrchestrator.detonate()``.
 
     Args:
         exit_code: Process exit code from the exploit container (124 = timeout).

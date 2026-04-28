@@ -28,7 +28,7 @@ The orchestrator owns:
 Two internal execution paths exist:
 - `_run_sast()` — the v0.2 SAST pipeline (Phases 1–6).
 - `_run_legacy()` — the v0.1 diff-based detonation path, preserved for
-  backwards compatibility until Phase 5 integrates it.
+  backwards compatibility until the patch-and-verify loop is implemented (v0.3).
 
 ## Consequences
 
