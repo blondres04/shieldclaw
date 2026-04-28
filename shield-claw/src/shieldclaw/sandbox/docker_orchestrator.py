@@ -79,15 +79,15 @@ class DockerOrchestrator:
         *,
         start_wait_seconds: float = _START_WAIT_SECONDS,
         start_poll_interval: float = _START_POLL_INTERVAL,
-        post_up_grace_seconds: float = 10.0,
+        post_up_grace_seconds: float = 2.0,
     ) -> None:
         """Create an orchestrator with configurable startup polling.
 
         Args:
             start_wait_seconds: Maximum time to wait for compose services after ``up``.
             start_poll_interval: Sleep interval between readiness probes.
-            post_up_grace_seconds: Extra sleep after every service reports running so
-                application processes (e.g. Flask + Postgres) can finish booting.
+            post_up_grace_seconds: Extra sleep after healthcheck gating completes.
+                Reduced from 10 s to 2 s now that readiness is healthcheck-gated.
         """
         self._start_wait = start_wait_seconds
         self._poll_interval = start_poll_interval
@@ -108,10 +108,11 @@ class DockerOrchestrator:
         if not compose_file.is_file():
             raise SandboxStartError(f"Compose file not found: {compose_file}")
         self._ensure_docker()
-        self._cleanup_stale()
+        self._cleanup_stale(result_id)
         project = compose_project_name(result_id)
         cwd = compose_file.parent
-        override = self._write_label_override(compose_file, result_id, cwd)
+        services = self._discover_service_names(compose_file, cwd)
+        override = self._write_label_override(compose_file, result_id, services)
         up_cmd = self._compose_command_prefix(compose_file, override, project) + ["up", "-d"]
         self._run_required(
             up_cmd,
@@ -120,7 +121,7 @@ class DockerOrchestrator:
             error_cls=SandboxStartError,
             error_prefix="docker compose up failed",
         )
-        self._wait_for_compose_ready(compose_file, override, project, cwd)
+        self._wait_for_compose_ready(project, cwd, services)
         if self._post_up_grace > 0:
             time.sleep(self._post_up_grace)
 
@@ -277,9 +278,16 @@ class DockerOrchestrator:
             detail = (completed.stderr or "").strip() or "unknown error"
             raise DockerNotAvailableError(f"Docker is not available: {detail}")
 
-    def _cleanup_stale(self) -> None:
-        """Remove any containers carrying the ShieldClaw run label."""
-        list_cmd = ["docker", "ps", "-qa", "--filter", "label=shieldclaw.run"]
+    def _cleanup_stale(self, result_id: str) -> None:
+        """Remove any containers labeled with this run's ``shieldclaw.run`` value.
+
+        Scoping to ``result_id`` ensures concurrent ShieldClaw runs do not
+        destroy each other's containers.
+
+        Args:
+            result_id: The run identifier whose containers should be removed.
+        """
+        list_cmd = ["docker", "ps", "-qa", "--filter", f"label=shieldclaw.run={result_id}"]
         _LOG.debug("Running command: %s", list_cmd)
         try:
             listed = subprocess.run(
@@ -347,9 +355,17 @@ class DockerOrchestrator:
             raise SandboxStartError("docker compose config returned no services.")
         return services
 
-    def _write_label_override(self, compose_file: Path, result_id: str, cwd: Path) -> Path:
-        """Emit a temporary compose override that applies ``shieldclaw.run`` labels."""
-        services = self._discover_service_names(compose_file, cwd)
+    def _write_label_override(
+        self, compose_file: Path, result_id: str, services: list[str]
+    ) -> Path:
+        """Emit a temporary compose override that applies ``shieldclaw.run`` labels.
+
+        Args:
+            compose_file: Path to the primary compose file (used to derive the
+                override path via ``label_override_path``).
+            result_id: Value written as ``shieldclaw.run`` on every service.
+            services: Pre-discovered service names from ``_discover_service_names``.
+        """
         quoted = result_id.replace("\\", "\\\\").replace('"', '\\"')
         lines = ["services:"]
         for service in services:
@@ -363,33 +379,72 @@ class DockerOrchestrator:
             raise SandboxStartError(f"Unable to write compose label override {override}.") from exc
         return override
 
+    def _is_service_healthy(self, service_name: str, project: str, cwd: Path) -> bool:
+        """Return True when a service is running and its healthcheck is passing or absent.
+
+        Docker Compose ≥ 2 names containers ``<project>-<service>-1``; legacy
+        versions use ``<project>_<service>_1``.  Both conventions are probed.
+
+        Args:
+            service_name: Compose service name as returned by ``docker compose config``.
+            project: Compose project name (derived from ``result_id``).
+            cwd: Working directory for the ``docker inspect`` subprocess call.
+
+        Returns:
+            ``True`` when the container is ``running`` and health is ``healthy``
+            or ``<no value>`` (no healthcheck configured).  ``False`` otherwise.
+        """
+        for sep in ("-", "_"):
+            container = f"{project}{sep}{service_name}{sep}1"
+            cmd = [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Health.Status}}\t{{.State.Status}}",
+                container,
+            ]
+            _LOG.debug("Running command: %s", cmd)
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=_DOCKER_INFO_TIMEOUT,
+                    cwd=str(cwd),
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                return False
+            if result.returncode != 0:
+                continue  # Container not found under this naming form; try the other.
+            output = result.stdout.strip()
+            if not output:
+                continue
+            health, _, status = output.partition("\t")
+            if status.strip() != "running":
+                return False
+            # "<no value>" means no healthcheck is configured — treat as passing.
+            return health.strip() in ("healthy", "<no value>", "")
+        return False
+
     def _wait_for_compose_ready(
         self,
-        compose_file: Path,
-        override: Path,
         project: str,
         cwd: Path,
+        services: list[str],
     ) -> None:
-        """Poll ``docker compose ps`` until every service is up or timeout hits."""
+        """Poll ``docker inspect`` until every service is running and healthcheck-passing.
+
+        Args:
+            project: Compose project name used to derive container names.
+            cwd: Working directory for subprocess calls.
+            services: Service names to probe; all must pass before returning.
+
+        Raises:
+            SandboxStartError: When the deadline expires before all services are ready.
+        """
         deadline = time.monotonic() + self._start_wait
-        ps_cmd = self._compose_command_prefix(compose_file, override, project) + [
-            "ps",
-            "--format",
-            "{{.State}}",
-        ]
         while time.monotonic() < deadline:
-            listed = self._run_required(
-                ps_cmd,
-                cwd=cwd,
-                timeout=_DOCKER_INFO_TIMEOUT,
-                error_cls=SandboxStartError,
-                error_prefix="docker compose ps failed while waiting for startup",
-            )
-            states = [s.strip().lower() for s in listed.stdout.splitlines() if s.strip()]
-            if not states:
-                time.sleep(self._poll_interval)
-                continue
-            if all(self._state_is_up(s) for s in states):
+            if all(self._is_service_healthy(svc, project, cwd) for svc in services):
                 return
             time.sleep(self._poll_interval)
         raise SandboxStartError(
@@ -454,13 +509,6 @@ class DockerOrchestrator:
             timeout=timeout,
             cwd=str(cwd),
         )
-
-    @staticmethod
-    def _state_is_up(state: str) -> bool:
-        """Return True when ``docker compose ps`` reports a service as healthy."""
-        if "exited" in state or "dead" in state:
-            return False
-        return "running" in state or state.startswith("up") or "healthy" in state
 
     @staticmethod
     def _looks_like_docker_client_error(stderr: str | None) -> bool:

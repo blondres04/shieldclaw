@@ -48,7 +48,7 @@ def test_parser_run_accepts_expected_flags(tmp_path: Path) -> None:
             "--diff",
             str(tmp_path / "x.patch"),
             "--provider",
-            "anthropic",
+            "ollama",
             "--timeout",
             "42",
             "--output",
@@ -57,7 +57,7 @@ def test_parser_run_accepts_expected_flags(tmp_path: Path) -> None:
     )
     assert args.command == "run"
     assert Path(args.target) == tmp_path
-    assert args.provider == "anthropic"
+    assert args.provider == "ollama"
     assert args.timeout == 42
     assert args.output.endswith("out.json")
 
@@ -90,7 +90,7 @@ def test_validate_rejects_invalid_provider(tmp_path: Path) -> None:
     """Unknown providers must be rejected explicitly."""
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     args = _run_namespace(target=str(tmp_path), provider="unknown")
-    with pytest.raises(CLIValidationError, match="Provider must be one of"):
+    with pytest.raises(CLIValidationError, match="supported in this release"):
         validate_run_configuration(args)
 
 

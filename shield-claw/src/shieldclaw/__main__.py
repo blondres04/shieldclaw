@@ -29,7 +29,8 @@ from dotenv import load_dotenv
 from shieldclaw.orchestrator import Orchestrator
 
 _COMPOSE_NAMES: Final[tuple[str, ...]] = ("docker-compose.yml", "docker-compose.yaml")
-_ALLOWED_PROVIDERS: Final[frozenset[str]] = frozenset({"ollama", "openai", "anthropic"})
+# Only Ollama is implemented. OpenAI and Anthropic will be re-added in Phase 4.
+_ALLOWED_PROVIDERS: Final[frozenset[str]] = frozenset({"ollama"})
 _LOG = logging.getLogger(__name__)
 
 
@@ -93,7 +94,8 @@ def validate_run_configuration(args: Namespace) -> None:
     provider = str(args.provider).lower()
     if provider not in _ALLOWED_PROVIDERS:
         raise CLIValidationError(
-            f"Provider must be one of {', '.join(sorted(_ALLOWED_PROVIDERS))}; got {args.provider!r}."
+            f"Only {', '.join(sorted(_ALLOWED_PROVIDERS))} is supported in this release; "
+            f"got {args.provider!r}. OpenAI and Anthropic land in Phase 4."
         )
 
     timeout = int(args.timeout)
@@ -113,7 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--provider",
         default="ollama",
-        help="LLM backend to use (ollama, openai, anthropic).",
+        help="LLM backend to use. Currently: ollama. (openai/anthropic land in Phase 4)",
     )
     run.add_argument(
         "--timeout",
