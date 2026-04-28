@@ -7,11 +7,14 @@ Public API:
   - main(argv: list[str] | None = None) -> int
 Depends On:
   - dotenv (load_dotenv)
+  - shieldclaw.ingest (parse_semgrep_json)
   - shieldclaw.orchestrator (Orchestrator)
+  - shieldclaw.triage (classify)
 Used By:
   - Python runtime (python -m shieldclaw)
 Use Cases:
   - SCAN-001 (Run Vulnerability Scan)
+  - SCAN-002 (Ingest and Triage SAST Findings)
 """
 
 from __future__ import annotations
@@ -91,6 +94,16 @@ def validate_run_configuration(args: Namespace) -> None:
         if diff_path.stat().st_size == 0:
             raise CLIValidationError(f"Diff file is empty: {args.diff}")
 
+    semgrep_output: str | None = getattr(args, "semgrep_output", None)
+    if semgrep_output is not None:
+        sp = Path(semgrep_output).expanduser()
+        if not sp.exists():
+            raise CLIValidationError(f"Semgrep output file does not exist: {semgrep_output}")
+        if not sp.is_file():
+            raise CLIValidationError(f"Semgrep output path is not a file: {semgrep_output}")
+        if not sp.stat().st_size:
+            raise CLIValidationError(f"Semgrep output file is empty: {semgrep_output}")
+
     provider = str(args.provider).lower()
     if provider not in _ALLOWED_PROVIDERS:
         raise CLIValidationError(
@@ -103,6 +116,41 @@ def validate_run_configuration(args: Namespace) -> None:
         raise CLIValidationError("Timeout must be a positive integer between 1 and 120.")
 
 
+def _print_triage_summary(semgrep_path: str) -> None:
+    """Ingest a Semgrep report, classify all findings, and print a summary to stderr.
+
+    This is a Phase 1 preview: the findings are not yet plumbed into the
+    orchestrator pipeline (that happens in Phase 2).
+
+    Args:
+        semgrep_path: Filesystem path to the Semgrep ``--json`` output file.
+    """
+    from shieldclaw.exceptions import IngestError
+    from shieldclaw.ingest.semgrep import parse_semgrep_json
+    from shieldclaw.triage.classifier import classify
+
+    try:
+        findings = parse_semgrep_json(Path(semgrep_path))
+    except IngestError as exc:
+        _LOG.error("Failed to ingest Semgrep report: %s", exc.message)
+        return
+
+    triaged = [classify(f) for f in findings]
+
+    print(
+        f"\n[ShieldClaw] Semgrep triage: {len(triaged)} findings\n",
+        file=sys.stderr,
+    )
+    for tf in triaged:
+        verdict_tag = tf.verdict.value
+        print(
+            f"  [{verdict_tag:24s}] {tf.finding.rule_id}\n"
+            f"    {tf.finding.path}:{tf.finding.start_line}  {tf.reason}",
+            file=sys.stderr,
+        )
+    print("", file=sys.stderr)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Construct the top-level CLI parser with a ``run`` subcommand."""
     parser = _ShieldClawArgumentParser(
@@ -112,6 +160,17 @@ def _build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Run the vulnerability scan pipeline.")
     run.add_argument("--target", required=True, help="Path to the repository under test.")
     run.add_argument("--diff", default=None, help="Optional path to a unified diff patch file.")
+    run.add_argument(
+        "--semgrep-output",
+        dest="semgrep_output",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Path to a Semgrep --json report.  Findings are triaged and printed to "
+            "stderr before the exploit pipeline runs.  Mutually exclusive with --diff "
+            "(both accepted in Phase 1 with a warning; Phase 2 will integrate findings)."
+        ),
+    )
     run.add_argument(
         "--provider",
         default="ollama",
@@ -148,11 +207,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command != "run":
         parser.error(f"unknown command {args.command!r}")
 
+    # Warn when --diff and --semgrep-output are both supplied.
+    semgrep_output: str | None = getattr(args, "semgrep_output", None)
+    if args.diff is not None and semgrep_output is not None:
+        _LOG.warning(
+            "--diff and --semgrep-output were both supplied.  "
+            "In Phase 1 both are accepted; Phase 2 will integrate findings into the "
+            "pipeline and may change this behaviour."
+        )
+
     try:
         validate_run_configuration(args)
     except CLIValidationError as exc:
         print(exc.message, file=sys.stderr)
         return 1
+
+    # Phase 1: ingest and triage before the exploit pipeline.
+    if semgrep_output is not None:
+        _print_triage_summary(semgrep_output)
 
     try:
         Orchestrator().run(
