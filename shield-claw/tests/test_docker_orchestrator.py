@@ -113,8 +113,8 @@ def test_detonate_timeout_returns_124(mocker: MockerFixture) -> None:
         language="python",
     )
     orch = DockerOrchestrator()
-    code = orch.detonate(payload, "net", "rid", timeout=1)
-    assert code == 124
+    outcome = orch.detonate(payload, "net", "rid", timeout=1)
+    assert outcome.exit_code == 124
     kill_mock.assert_called_once()
 
 

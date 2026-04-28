@@ -33,10 +33,11 @@ Use Cases:
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 # ---------------------------------------------------------------------------
@@ -227,3 +228,112 @@ class ScoredFinding:
 
     triaged: TriagedFinding
     score: ExploitabilityScore | None
+
+
+# ---------------------------------------------------------------------------
+# Observer protocol (interface defined here so both sandbox/ and observer/
+# can import it from the shared leaf module without cross-feature imports).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ObserverEvidence:
+    """A single piece of evidence collected by a ``DetonationObserver``.
+
+    Args:
+        observer_name: Unique identifier for the observer that produced this.
+        tier: 1 for exit-code observers, 2 for side-effect observers.
+        captured_at: UTC timestamp when the evidence was captured.
+        summary: One-line human-readable description.
+        payload_json: Observer-specific structured data (JSON string).
+    """
+
+    observer_name: str
+    tier: int
+    captured_at: datetime
+    summary: str
+    payload_json: str
+
+
+class DetonationObserver(ABC):
+    """Abstract base for observers that run around a detonation.
+
+    Implementations are passed to ``DockerOrchestrator.detonate()`` and
+    called once before and once after the attacker container exits.
+
+    ``before_state`` is opaque per-observer context: whatever ``before_detonate``
+    returns is passed verbatim to ``after_detonate``.
+    """
+
+    name: str
+    tier: int
+
+    @abstractmethod
+    def before_detonate(self, target_container_id: str | None, network_name: str) -> Any:
+        """Snapshot or prepare state before the attacker container starts.
+
+        Args:
+            target_container_id: Docker ID of the target (victim) container,
+                or ``None`` when not resolvable.
+            network_name: Compose network the attacker will join.
+
+        Returns:
+            Opaque state value passed to ``after_detonate``.
+        """
+        ...
+
+    @abstractmethod
+    def after_detonate(
+        self,
+        before_state: Any,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        target_container_id: str | None,
+    ) -> ObserverEvidence:
+        """Collect and return evidence after the attacker container exits.
+
+        Args:
+            before_state: Value returned by ``before_detonate``.
+            exit_code: Process exit code of the attacker container.
+            stdout: Captured stdout from the attacker run.
+            stderr: Captured stderr from the attacker run.
+            target_container_id: Docker ID of the target container, or ``None``.
+
+        Returns:
+            ``ObserverEvidence`` summarising what this observer observed.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class DetonationOutcome:
+    """Result returned by ``DockerOrchestrator.detonate()`` in Phase 3+.
+
+    Args:
+        exit_code: Process exit code from the exploit container (124 = timeout).
+        evidence: Tuple of evidence collected by all registered observers.
+    """
+
+    exit_code: int
+    evidence: tuple[ObserverEvidence, ...]
+
+
+# ---------------------------------------------------------------------------
+# Verdict (synthesised from observer evidence)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """Synthesised verdict for a single detonated finding.
+
+    Args:
+        verdict: ``"TRUE_POSITIVE"``, ``"FALSE_POSITIVE"``, or ``"INCONCLUSIVE"``.
+        confidence: Confidence in the verdict in ``[0.0, 1.0]``.
+        evidence_summary: Human-readable explanation of the synthesis decision.
+    """
+
+    verdict: Literal["TRUE_POSITIVE", "FALSE_POSITIVE", "INCONCLUSIVE"]
+    confidence: float
+    evidence_summary: str

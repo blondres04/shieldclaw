@@ -259,7 +259,163 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show details for a specific scan UUID.",
     )
 
+    # ---- approve ----
+    approve = sub.add_parser(
+        "approve",
+        help="Approve or reject findings awaiting review before detonation.",
+    )
+    approve.add_argument("scan_id", help="Scan UUID to act on.")
+    approve.add_argument(
+        "finding_id",
+        nargs="?",
+        default=None,
+        help="Specific finding UUID to approve/reject.  Omit when using --all-pending or --auto.",
+    )
+    approve.add_argument(
+        "--reject",
+        action="store_true",
+        default=False,
+        help="Reject the finding(s) instead of approving.",
+    )
+    approve.add_argument(
+        "--note",
+        default=None,
+        help="Optional audit note recorded with the decision.",
+    )
+    approve.add_argument(
+        "--all-pending",
+        dest="all_pending",
+        action="store_true",
+        default=False,
+        help="Apply the decision to all AWAITING_APPROVAL findings in the scan (logs WARN per approval).",
+    )
+    approve.add_argument(
+        "--auto",
+        action="store_true",
+        default=False,
+        help=(
+            "Machine-mode: auto-approve all pending findings.  "
+            "Requires SHIELDCLAW_AUTO_APPROVE=1; refuses otherwise."
+        ),
+    )
+    approve.add_argument(
+        "--target",
+        default=None,
+        metavar="PATH",
+        help="Target directory containing the scan DB (defaults to cwd).",
+    )
+
     return parser
+
+
+def _run_approve(args: Namespace) -> int:
+    """Process an approval or rejection for one or more findings.
+
+    Modes:
+      - Single finding:   ``approve <scan_id> <finding_id> [--reject]``
+      - All pending:      ``approve <scan_id> --all-pending [--reject]`` (WARN logged per finding)
+      - Auto-approve all: ``approve <scan_id> --auto``  (requires ``SHIELDCLAW_AUTO_APPROVE=1``)
+    """
+    from shieldclaw.approval.gate import get_current_user, is_auto_approve_enabled
+    from shieldclaw.persistence.store import ScanStore
+
+    target_dir = getattr(args, "target", None) or str(Path.cwd())
+    store = ScanStore(target_dir)
+
+    scan_row = store.load_scan(args.scan_id)
+    if scan_row is None:
+        print(f"Scan {args.scan_id!r} not found.", file=sys.stderr)
+        return 1
+
+    # -- auto mode --
+    if args.auto:
+        if not is_auto_approve_enabled():
+            print(
+                "ERROR: --auto requires SHIELDCLAW_AUTO_APPROVE=1 in the environment.",
+                file=sys.stderr,
+            )
+            return 1
+        pending = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+        if not pending:
+            print("No findings are awaiting approval.", file=sys.stderr)
+            return 0
+        decided_by = get_current_user()
+        for row in pending:
+            _LOG.warning(
+                "AUTO-APPROVING finding %s in scan %s (SHIELDCLAW_AUTO_APPROVE=1)",
+                row.finding_id,
+                args.scan_id,
+            )
+            store.record_approval(
+                row.finding_id,
+                "APPROVED",
+                decided_by,
+                note="auto-approved via SHIELDCLAW_AUTO_APPROVE=1",
+                auto=True,
+            )
+            store.update_finding_state(row.finding_id, "APPROVED")
+        print(f"Auto-approved {len(pending)} finding(s).", file=sys.stderr)
+        return 0
+
+    # -- all-pending mode --
+    if args.all_pending:
+        decision = "REJECTED" if args.reject else "APPROVED"
+        pending = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+        if not pending:
+            print("No findings are awaiting approval.", file=sys.stderr)
+            return 0
+        decided_by = get_current_user()
+        for row in pending:
+            _LOG.warning(
+                "Bulk-%s finding %s in scan %s",
+                decision,
+                row.finding_id,
+                args.scan_id,
+            )
+            store.record_approval(
+                row.finding_id,
+                decision,
+                decided_by,
+                note=args.note,
+                auto=False,
+            )
+            store.update_finding_state(row.finding_id, decision)
+        print(f"{decision} {len(pending)} finding(s).", file=sys.stderr)
+        return 0
+
+    # -- single-finding mode --
+    if not args.finding_id:
+        print(
+            "ERROR: provide a finding_id, or use --all-pending / --auto.",
+            file=sys.stderr,
+        )
+        return 1
+
+    finding_rows = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+    target_id = args.finding_id
+    match = next((r for r in finding_rows if r.finding_id == target_id), None)
+    if match is None:
+        print(
+            f"Finding {target_id!r} is not in AWAITING_APPROVAL state for scan {args.scan_id!r}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    decision = "REJECTED" if args.reject else "APPROVED"
+    decided_by = get_current_user()
+    store.record_approval(
+        target_id,
+        decision,
+        decided_by,
+        note=args.note,
+        auto=False,
+    )
+    store.update_finding_state(target_id, decision)
+    print(
+        f"Finding {target_id} → {decision}  (decided by {decided_by})",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -278,6 +434,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "status":
         return _run_status(args)
+
+    if args.command == "approve":
+        return _run_approve(args)
 
     if args.command != "run":
         parser.error(f"unknown command {args.command!r}")

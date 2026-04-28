@@ -12,7 +12,7 @@ import pytest
 from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import AggregationError, LLMRefusalError
 from shieldclaw.intelligence.base import LLMProvider
-from shieldclaw.models import ExploitPayload, ScanContext, ScanResult
+from shieldclaw.models import DetonationOutcome, ExploitPayload, ScanContext, ScanResult
 from shieldclaw.orchestrator import Orchestrator, compose_default_network
 from shieldclaw.reporting.builder import ReportBuilder
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator
@@ -59,7 +59,7 @@ def test_happy_path_state_sequence(repo_dir: Path) -> None:
     provider.generate_exploit.return_value = payload
 
     docker = MagicMock(spec=DockerOrchestrator)
-    docker.detonate.return_value = 0
+    docker.detonate.return_value = DetonationOutcome(exit_code=0, evidence=())
 
     reports = MagicMock(spec=ReportBuilder)
     reports.build.return_value = '{"ok": true}\n'
