@@ -8,10 +8,8 @@ Public API:
 Depends On:
   - shieldclaw.context.aggregator (ContextAggregator)
   - shieldclaw.exceptions (SandboxStartError, ShieldClawError)
-  - shieldclaw.intelligence.anthropic_provider (AnthropicProvider)
   - shieldclaw.intelligence.base (LLMProvider)
   - shieldclaw.intelligence.ollama (OllamaProvider)
-  - shieldclaw.intelligence.openai_provider (OpenAIProvider)
   - shieldclaw.models (ExploitPayload, ScanContext, ScanResult)
   - shieldclaw.reporting.builder (ReportBuilder)
   - shieldclaw.sandbox.docker_orchestrator (DockerOrchestrator, compose_default_network)
@@ -32,10 +30,8 @@ from typing import Final
 
 from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import SandboxStartError, ShieldClawError
-from shieldclaw.intelligence.anthropic_provider import AnthropicProvider
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.ollama import OllamaProvider
-from shieldclaw.intelligence.openai_provider import OpenAIProvider
 from shieldclaw.models import ExploitPayload, ScanContext, ScanResult
 from shieldclaw.reporting.builder import ReportBuilder
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator, compose_default_network
@@ -66,8 +62,10 @@ def _resolve_compose_path(target_dir: str) -> str | None:
 def default_provider_factory(provider_name: str) -> LLMProvider:
     """Construct the default ``LLMProvider`` implementation for a CLI name.
 
+    Only ``ollama`` is available until Phase 4 implements the hosted providers.
+
     Args:
-        provider_name: One of ``ollama``, ``openai``, or ``anthropic`` (case-insensitive).
+        provider_name: Currently only ``ollama`` (case-insensitive).
 
     Returns:
         A concrete provider instance.
@@ -78,10 +76,6 @@ def default_provider_factory(provider_name: str) -> LLMProvider:
     match provider_name.lower():
         case "ollama":
             return OllamaProvider()
-        case "openai":
-            return OpenAIProvider()
-        case "anthropic":
-            return AnthropicProvider()
         case _:
             raise ValueError(f"Unknown LLM provider: {provider_name!r}")
 
