@@ -3,8 +3,9 @@
 # Install:  pip install pre-commit  &&  pre-commit install
 # Run all:  pre-commit run --all-files
 #
-# The Python package lives under shield-claw/; hooks that care about
-# project config (mypy, pytest) chdir into that tree before running.
+# The Python package lives under shield-claw/; the local hooks use small
+# launcher scripts (shield-claw/scripts/pre_commit_*.py) so they work
+# cross-platform without requiring bash.
 
 repos:
   # ---------------------------------------------------------------------------
@@ -20,22 +21,24 @@ repos:
         files: ^shield-claw/
 
   # ---------------------------------------------------------------------------
-  # Local hooks — require the dev venv to be active (pre-commit language: system)
+  # Local hooks — use Python launcher scripts; no bash dependency.
+  # Requires the dev venv to be active (language: system).
   # ---------------------------------------------------------------------------
   - repo: local
     hooks:
       - id: mypy
         name: mypy (strict)
         language: system
-        # Run from the package root so pyproject.toml [tool.mypy] is picked up.
-        entry: bash -c 'cd shield-claw && python -m mypy src/'
+        # Launcher chdirs to shield-claw/ so pyproject.toml [tool.mypy] is used.
+        entry: python shield-claw/scripts/pre_commit_mypy.py
         pass_filenames: false
         types: [python]
 
-      - id: arch-guard
-        name: architecture guard
+      - id: pytest-unit
+        name: pytest (unit — no Docker)
         language: system
-        # Fail fast: only the isolation test; full suite runs in CI.
-        entry: bash -c 'cd shield-claw && python -m pytest tests/test_architecture.py -q'
+        # Launcher chdirs to shield-claw/ so pyproject.toml [tool.pytest] is used.
+        # --no-cov requires pytest-cov in requirements-dev.txt.
+        entry: python shield-claw/scripts/pre_commit_pytest.py
         pass_filenames: false
         types: [python]

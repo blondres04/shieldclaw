@@ -1,3 +1,5 @@
+> **ShieldClaw — SAST verification engine. v0.2 pivot in progress on branch `pivot/sast-verifier`. See [CHANGELOG](./CHANGELOG.md).**
+
 # Shield Claw
 
 **Shield Claw** is a local CLI tool that uses LLM-generated exploits to empirically verify application-layer vulnerabilities in Docker-based projects. Unlike static analysis tools that predict whether code *might* be vulnerable, Shield Claw proves it by detonating an exploit against a running replica of your application.

@@ -104,11 +104,11 @@ class DockerOrchestrator:
             DockerNotAvailableError: When the Docker daemon is unreachable.
             SandboxStartError: When compose ``up`` or readiness polling fails.
         """
-        self._ensure_docker()
-        self._cleanup_stale()
         compose_file = Path(compose_path).expanduser().resolve()
         if not compose_file.is_file():
             raise SandboxStartError(f"Compose file not found: {compose_file}")
+        self._ensure_docker()
+        self._cleanup_stale()
         project = compose_project_name(result_id)
         cwd = compose_file.parent
         override = self._write_label_override(compose_file, result_id, cwd)
