@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.ollama import OllamaProvider
+from shieldclaw.intelligence.openai_provider import OpenAIProvider
 from shieldclaw.intelligence.parser import parse_llm_response
 from shieldclaw.intelligence.poc_generator import PocGenerator
 from shieldclaw.intelligence.prompts import (
@@ -18,6 +19,7 @@ __all__ = [
     "FINDING_SYSTEM_PROMPT",
     "LLMProvider",
     "OllamaProvider",
+    "OpenAIProvider",
     "PocGenerator",
     "SYSTEM_PROMPT",
     "build_diff_prompt",
