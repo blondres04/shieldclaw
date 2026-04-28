@@ -33,6 +33,10 @@ red-team-agent/.env
 # Build / generated artifacts
 /docs/
 
+# Scan output artifacts — local only, not tracked
+report.json
+report-*.json
+
 # Harness configuration files — local only, not tracked
 .cursorrules
 CONTEXT.md
@@ -41,10 +45,16 @@ harness-engineering.md
 # AI agent working files — never reach the remote repo
 ai/
 .ai/
+.aider*
 .claude/
+.continue/
 .cursor/scratch/
+.prompts/
+prompts/
 research/
 plans/
+*_llm_context.md
+playbook-main.md
 **/RESEARCH.md
 **/PLAN.md
 **/COMPACTION.md
