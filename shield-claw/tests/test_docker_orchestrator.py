@@ -118,6 +118,85 @@ def test_detonate_timeout_returns_124(mocker: MockerFixture) -> None:
     kill_mock.assert_called_once()
 
 
+def test_cleanup_stale_filters_by_result_id(mocker: MockerFixture) -> None:
+    """``_cleanup_stale`` must scope docker ps to ``label=shieldclaw.run=<result_id>``."""
+    no_containers = subprocess.CompletedProcess(["docker", "ps"], 0, "", "")
+    run_mock = mocker.patch(
+        "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
+        return_value=no_containers,
+    )
+    orch = DockerOrchestrator()
+    orch._cleanup_stale("my-run-id")
+    cmd = run_mock.call_args_list[0][0][0]
+    assert "label=shieldclaw.run=my-run-id" in " ".join(cmd)
+
+
+def test_cleanup_stale_does_not_touch_other_run_ids(mocker: MockerFixture) -> None:
+    """A cleanup for run-A must not issue rm commands that would affect run-B."""
+    no_containers = subprocess.CompletedProcess(["docker", "ps"], 0, "", "")
+    run_mock = mocker.patch(
+        "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
+        return_value=no_containers,
+    )
+    orch = DockerOrchestrator()
+    orch._cleanup_stale("run-a")
+    # Only one subprocess call (docker ps); no docker rm because nothing matched.
+    assert run_mock.call_count == 1
+    cmd = run_mock.call_args_list[0][0][0]
+    # The filter must NOT be the broad "label=shieldclaw.run" (no value).
+    assert "label=shieldclaw.run=" in " ".join(cmd)
+    assert "label=shieldclaw.run " not in " ".join(cmd)
+
+
+def test_is_service_healthy_healthy_with_healthcheck(mocker: MockerFixture) -> None:
+    """``healthy`` + ``running`` should return ``True``."""
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "healthy\trunning", "")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    assert DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
+
+
+def test_is_service_healthy_no_healthcheck_counts_as_passing(mocker: MockerFixture) -> None:
+    """``<no value>`` health status (no healthcheck) must return ``True`` when running."""
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "<no value>\trunning", "")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    assert DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
+
+
+def test_is_service_healthy_unhealthy_returns_false(mocker: MockerFixture) -> None:
+    """``unhealthy`` status must return ``False``."""
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "unhealthy\trunning", "")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    assert not DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
+
+
+def test_is_service_healthy_not_running_returns_false(mocker: MockerFixture) -> None:
+    """Container not yet in ``running`` state must return ``False``."""
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "<no value>\texited", "")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    assert not DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
+
+
+def test_is_service_healthy_tries_legacy_naming_when_modern_fails(
+    mocker: MockerFixture,
+) -> None:
+    """Legacy ``project_service_1`` form is tried when modern ``project-service-1`` fails."""
+    calls: list[list[str]] = []
+
+    def fake_inspect(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        # First call (modern dash form) — container not found.
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(cmd, 1, "", "No such container")
+        # Second call (legacy underscore form) — success.
+        return subprocess.CompletedProcess(cmd, 0, "<no value>\trunning", "")
+
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", side_effect=fake_inspect)
+    assert DockerOrchestrator()._is_service_healthy("web", "myproject", Path("/tmp"))
+    assert len(calls) == 2
+    assert "myproject-web-1" in calls[0]
+    assert "myproject_web_1" in calls[1]
+
+
 def test_detonate_raises_on_docker_client_error(mocker: MockerFixture) -> None:
     """Docker client failures should raise ``DetonationError``."""
     mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
