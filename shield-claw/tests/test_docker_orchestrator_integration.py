@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -263,7 +262,7 @@ def test_attacker_network_is_internal_and_blocks_egress(integration_compose: Pat
 @pytest.mark.skipif(not _COMPOSE_SRC.is_file(), reason="vulnerable-flask-app compose file missing")
 @pytest.mark.skipif(not _docker_available(), reason="Docker engine not available")
 def test_attacker_container_uses_default_seccomp_profile(integration_compose: Path) -> None:
-    """The live attacker container should expose the default seccomp profile via inspect."""
+    """The live attacker container must not disable Docker's default seccomp profile."""
     result_id = str(uuid.uuid4())
     project = compose_project_name(result_id)
     compose_dir = integration_compose.parent
@@ -347,10 +346,9 @@ def test_attacker_container_uses_default_seccomp_profile(integration_compose: Pa
         assert inspect.returncode == 0, inspect.stderr
         security_opt = inspect.stdout.strip()
         assert "seccomp=unconfined" not in security_opt
-        if platform.system().lower() == "windows":
-            assert security_opt in ("null", "[]", "")
-        else:
-            assert "seccomp=default" in security_opt
+        # Docker's default seccomp policy is typically implicit, so inspect
+        # often reports null/[] when no override is configured.
+        assert security_opt in ("null", "[]", "")
     finally:
         detonation_thread.join(timeout=90.0)
         if original_tag is None:

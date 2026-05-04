@@ -22,7 +22,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import platform
 import subprocess
 import time
 import uuid
@@ -87,13 +86,12 @@ def _detonate_image() -> str:
 def _security_opts_for_attacker() -> list[str]:
     """Return security options for the attacker container.
 
-    Linux daemons accept ``seccomp=default`` explicitly. Docker Desktop on
-    Windows treats that token as a profile path, so we fall back to the engine
-    default there and only assert that we never run ``unconfined``.
+    Docker applies its default seccomp profile implicitly unless the container
+    overrides it. Rely on that engine default so detonation stays portable
+    across Linux CI runners and Docker Desktop environments, and only guard
+    against accidentally running ``unconfined`` in tests.
     """
-    if platform.system().lower() == "windows":
-        return []
-    return ["--security-opt", "seccomp=default"]
+    return []
 
 
 def _compose_start_timeout() -> float:
