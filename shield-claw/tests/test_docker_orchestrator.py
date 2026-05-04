@@ -173,8 +173,8 @@ def test_is_service_healthy_healthy_with_healthcheck(mocker: MockerFixture) -> N
 
 
 def test_is_service_healthy_no_healthcheck_counts_as_passing(mocker: MockerFixture) -> None:
-    """``<no value>`` health status (no healthcheck) must return ``True`` when running."""
-    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "<no value>\trunning", "")
+    """``none`` health status (no healthcheck) must return ``True`` when running."""
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "none\trunning", "")
     mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
     assert DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
 
@@ -188,7 +188,7 @@ def test_is_service_healthy_unhealthy_returns_false(mocker: MockerFixture) -> No
 
 def test_is_service_healthy_not_running_returns_false(mocker: MockerFixture) -> None:
     """Container not yet in ``running`` state must return ``False``."""
-    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "<no value>\texited", "")
+    proc = subprocess.CompletedProcess(["docker", "inspect"], 0, "none\texited", "")
     mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
     assert not DockerOrchestrator()._is_service_healthy("web", "proj", Path("/tmp"))
 
@@ -205,7 +205,7 @@ def test_is_service_healthy_tries_legacy_naming_when_modern_fails(
         if len(calls) == 1:
             return subprocess.CompletedProcess(cmd, 1, "", "No such container")
         # Second call (legacy underscore form) — success.
-        return subprocess.CompletedProcess(cmd, 0, "<no value>\trunning", "")
+        return subprocess.CompletedProcess(cmd, 0, "none\trunning", "")
 
     mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", side_effect=fake_inspect)
     assert DockerOrchestrator()._is_service_healthy("web", "myproject", Path("/tmp"))
