@@ -16,6 +16,7 @@ from shieldclaw.sandbox.docker_orchestrator import (
     DockerOrchestrator,
     compose_default_network,
     compose_project_name,
+    resolve_compose_start_wait_seconds,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -89,7 +90,7 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
         pytest.skip(f"docker compose build failed: {build.stderr}")
 
     orchestrator = DockerOrchestrator(
-        start_wait_seconds=120.0,
+        start_wait_seconds=resolve_compose_start_wait_seconds(120.0),
         start_poll_interval=2.0,
         post_up_grace_seconds=0.0,
     )
