@@ -122,6 +122,24 @@ class ValidTargetDnsProvider(LLMProvider):
         return _VALID_TARGET_POC_JSON
 
 
+class RefusalThenSuccessProvider(LLMProvider):
+    """Provider that refuses PoC generation for one finding and succeeds for another."""
+
+    def __init__(self) -> None:
+        self.complete_calls = 0
+
+    def generate_exploit(self, context: ScanContext) -> ExploitPayload:
+        raise LLMConnectionError("RefusalThenSuccessProvider is for SAST PoC generation only")
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        self.complete_calls += 1
+        if '"score"' in system_prompt or "exploitability" in system_prompt.lower():
+            return _SCORE_JSON
+        if "refused.py" in user_prompt:
+            return "Sorry, I cannot help generate exploit code."
+        return _VALID_TARGET_POC_JSON
+
+
 @pytest.fixture
 def repo_dir(tmp_path: Path) -> Path:
     """Minimal repo with a compose file so orchestrator target validation passes."""
@@ -464,3 +482,86 @@ def test_resume_marks_poc_generated_findings_inconclusive_without_redetonating(
     counts = store.count_findings_by_state(scan_id)
     assert counts.get("VERDICTED", 0) == 1
     assert counts.get("POC_GENERATED", 0) == 0
+
+
+def test_refused_poc_is_reported_and_does_not_block_other_findings(repo_dir: Path) -> None:
+    """A twice-refused PoC should become REFUSED in the report while other findings continue."""
+    from unittest.mock import MagicMock
+
+    semgrep_fixture = repo_dir / "semgrep-refused.json"
+    semgrep_fixture.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "refused.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    },
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "ok.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    },
+                ],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (repo_dir / "refused.py").write_text("query = request.args['id']\n", encoding="utf-8")
+    (repo_dir / "ok.py").write_text("query = request.args['id']\n", encoding="utf-8")
+
+    provider = RefusalThenSuccessProvider()
+    docker = MagicMock(spec=DockerOrchestrator)
+    docker.detonate.return_value = DetonationOutcome(exit_code=0, evidence=())
+    output_path = repo_dir / "report.json"
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setenv("SHIELDCLAW_AUTO_APPROVE", "1")
+        orch = Orchestrator(provider_factory=lambda _: provider, docker_orchestrator=docker)
+        result = orch.run(
+            target_dir=str(repo_dir),
+            semgrep_output=str(semgrep_fixture),
+            output_path=str(output_path),
+        )
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_called_once()
+
+    store = ScanStore(str(repo_dir))
+    latest = store.get_latest_scan(str(repo_dir))
+    assert latest is not None
+
+    findings_by_path = {row.path: row for row in store.list_findings(latest.scan_id)}
+    assert findings_by_path["refused.py"].state == "REFUSED"
+    assert findings_by_path["ok.py"].state == "VERDICTED"
+
+    refused_verdict = store.get_verdict(findings_by_path["refused.py"].finding_id)
+    assert refused_verdict is not None
+    assert refused_verdict["verdict"] == "REFUSED"
+    assert refused_verdict["summary"] == "LLM refused to generate PoC after retry"
+
+    report_data = json.loads(output_path.read_text(encoding="utf-8"))
+    report_findings = {item["path"]: item for item in report_data["findings"]}
+    assert report_findings["refused.py"]["state"] == "REFUSED"
+    assert report_findings["refused.py"]["verdict"] == "REFUSED"
+    assert (
+        report_findings["refused.py"]["verdict_summary"]
+        == "LLM refused to generate PoC after retry"
+    )
+    assert report_findings["ok.py"]["state"] == "VERDICTED"

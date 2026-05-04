@@ -175,6 +175,18 @@ class TriageVerdict(Enum):
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
+class FindingState(Enum):
+    """Persisted lifecycle states for a SAST finding within the pipeline."""
+
+    INGESTED = "INGESTED"
+    TRIAGED = "TRIAGED"
+    SCORED = "SCORED"
+    APPROVED = "APPROVED"
+    POC_GENERATED = "POC_GENERATED"
+    VERDICTED = "VERDICTED"
+    REFUSED = "REFUSED"
+
+
 @dataclass(frozen=True, slots=True)
 class TriagedFinding:
     """A ``Finding`` annotated with a triage verdict and human-readable reason.

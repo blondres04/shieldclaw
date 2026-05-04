@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import logging
 
-from shieldclaw.exceptions import LLMResponseError
+from shieldclaw.exceptions import LLMRefusalError, LLMResponseError
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.intelligence.parser import parse_llm_response
-from shieldclaw.intelligence.prompts import FINDING_SYSTEM_PROMPT, build_finding_prompt
+from shieldclaw.intelligence.prompts import (
+    FINDING_SYSTEM_PROMPT,
+    build_finding_prompt,
+    build_finding_retry_prompt,
+)
 from shieldclaw.models import ExploitPayload, Finding
 
 _LOG = logging.getLogger(__name__)
@@ -56,17 +60,31 @@ class PocGenerator:
             LLMRefusalError: When the model refuses to generate the PoC.
             LLMResponseError: When the model output cannot be parsed.
         """
-        user_prompt = build_finding_prompt(finding, source_excerpt, compose_yaml)
+        prompts = (
+            build_finding_prompt(finding, source_excerpt, compose_yaml),
+            build_finding_retry_prompt(finding, source_excerpt, compose_yaml),
+        )
         _LOG.debug(
             "Generating PoC for finding %s (%s) via %s",
             finding.finding_id,
             finding.rule_id,
             self._model_name,
         )
-        raw = self._provider.complete(FINDING_SYSTEM_PROMPT, user_prompt)
-        _LOG.debug("Raw PoC response: %s", raw[:500])
-        try:
-            return parse_llm_response(raw)
-        except LLMResponseError:
-            _LOG.warning("Failed to parse PoC for finding %s; re-raising", finding.finding_id)
-            raise
+        for attempt, user_prompt in enumerate(prompts, start=1):
+            raw = self._provider.complete(FINDING_SYSTEM_PROMPT, user_prompt)
+            _LOG.debug("Raw PoC response (attempt %d): %s", attempt, raw[:500])
+            try:
+                return parse_llm_response(raw)
+            except LLMRefusalError as exc:
+                if attempt == 1:
+                    _LOG.warning(
+                        "PoC generation refused for finding %s; retrying with authorized context",
+                        finding.finding_id,
+                    )
+                    continue
+                raise LLMRefusalError("LLM refused to generate PoC after retry") from exc
+            except LLMResponseError:
+                _LOG.warning("Failed to parse PoC for finding %s; re-raising", finding.finding_id)
+                raise
+
+        raise AssertionError("PoC generation attempts exhausted without success or refusal")

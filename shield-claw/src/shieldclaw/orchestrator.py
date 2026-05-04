@@ -42,6 +42,7 @@ from shieldclaw.models import (
     DetonationOutcome,
     ExploitPayload,
     Finding,
+    FindingState,
     ObserverWarning,
     SASTFindingReport,
     ScanContext,
@@ -520,7 +521,7 @@ class Orchestrator:
         synthesize: object,
     ) -> tuple[ObserverWarning, ...]:
         """Generate PoC, detonate, and record verdict for one approved finding."""
-        from shieldclaw.exceptions import LLMConnectionError, LLMResponseError
+        from shieldclaw.exceptions import LLMConnectionError, LLMRefusalError, LLMResponseError
         from shieldclaw.intelligence.poc_generator import PocGenerator
         from shieldclaw.persistence.store import FindingRow, ScanStore
         from shieldclaw.verdict.synthesizer import synthesize as _synthesize
@@ -534,6 +535,16 @@ class Orchestrator:
 
         try:
             payload = poc_gen.generate(finding, excerpt, compose_yaml)
+        except LLMRefusalError as exc:
+            _LOG.warning("PoC generation refused for %s after retry: %s", row.finding_id, exc)
+            store.record_verdict(
+                row.finding_id,
+                "REFUSED",
+                1.0,
+                exc.message,
+            )
+            store.update_finding_state(row.finding_id, FindingState.REFUSED.value)
+            return ()
         except (LLMResponseError, LLMConnectionError) as exc:
             _LOG.warning("PoC generation failed for %s: %s", row.finding_id, exc)
             store.record_verdict(
