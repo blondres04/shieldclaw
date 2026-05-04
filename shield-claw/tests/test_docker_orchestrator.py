@@ -202,10 +202,9 @@ def test_detonate_timeout_returns_124(mocker: MockerFixture) -> None:
     kill_mock.assert_called_once()
 
 
-def test_detonate_applies_default_seccomp_profile(mocker: MockerFixture) -> None:
-    """The attacker container must run under Docker's default seccomp profile."""
+def test_detonate_uses_engine_default_seccomp_profile(mocker: MockerFixture) -> None:
+    """Detonation should rely on Docker's default seccomp policy, not override it."""
     mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
-    mocker.patch("shieldclaw.sandbox.docker_orchestrator.platform.system", return_value="Linux")
     completed = subprocess.CompletedProcess(["docker", "run"], 0, "", "")
     run_mock = mocker.patch(
         "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
@@ -223,15 +222,13 @@ def test_detonate_applies_default_seccomp_profile(mocker: MockerFixture) -> None
 
     assert outcome.exit_code == 0
     cmd = run_mock.call_args[0][0]
-    assert "--security-opt" in cmd
-    assert "seccomp=default" in cmd
+    assert "--security-opt" not in cmd
     assert "seccomp=unconfined" not in cmd
 
 
-def test_detonate_never_uses_unconfined_on_windows(mocker: MockerFixture) -> None:
-    """Windows hosts should rely on the engine default instead of forcing unconfined."""
+def test_detonate_never_uses_unconfined(mocker: MockerFixture) -> None:
+    """Detonation must never opt out of seccomp via ``unconfined``."""
     mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
-    mocker.patch("shieldclaw.sandbox.docker_orchestrator.platform.system", return_value="Windows")
     completed = subprocess.CompletedProcess(["docker", "run"], 0, "", "")
     run_mock = mocker.patch(
         "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
