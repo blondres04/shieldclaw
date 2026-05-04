@@ -65,14 +65,14 @@ Semgrep JSON ──> INGEST ──> TRIAGE ──> SCORE ──> APPROVE ──>
                   (1)        (2)       (3)       (4)         (5)         (6)          (7)
 ```
 
-All inter-stage data is persisted to SQLite. Each finding has a state (`INGESTED → TRIAGED → SCORED → APPROVED → POC_GENERATED → DETONATED → VERDICTED`) that enables resumability.
+All inter-stage data is persisted to SQLite. Each finding has a state that enables resumability. Actual states written by the orchestrator: `INGESTED → TRIAGED → SCORED → APPROVED → VERDICTED` (terminal). `REJECTED` is a terminal state when approval is denied. Note: the `shieldclaw approve` CLI subcommand queries for `AWAITING_APPROVAL` state, but the orchestrator currently leaves unapproved findings in `SCORED` — no code writes `AWAITING_APPROVAL`. This mismatch means the async HITL path is currently broken and must be fixed as part of issue #48.
 
 ### Stage 1: Ingest
 - **Module:** `ingest/semgrep.py`
 - **Input:** Semgrep JSON file path
 - **Output:** `List[Finding]` written to SQLite
 - **Interface:** `parse_semgrep_json(path) → List[Finding]`
-- **Notes:** Extracts CWE IDs from `metadata.cwe`, normalizes severity, generates UUID per finding. Source excerpt is frozen here from `extra.lines` (1-5 lines).
+- **Notes:** Extracts CWE IDs from `metadata.cwe`, normalizes severity, generates UUID per finding. No source excerpt is stored at ingest time — the `Finding` dataclass and the SQLite schema have no excerpt field. The excerpt is reconstructed on-the-fly from disk at scoring and PoC generation time via `_extract_source_lines()` (orchestrator.py) using the finding's `path`, `start_line`, and `end_line`. Resumed scans therefore read the current file on disk, not the file as it was when Semgrep ran.
 
 ### Stage 2: Triage
 - **Module:** `triage/classifier.py`
@@ -99,10 +99,10 @@ All inter-stage data is persisted to SQLite. Each finding has a state (`INGESTED
 - **Input:** `Finding` in SCORED state
 - **Output:** Finding state → APPROVED
 - **Modes:**
-  - `SHIELDCLAW_AUTO_APPROVE=1`: auto-approve all (CI mode)
-  - Async: pipeline stops; operator runs `shieldclaw approve` separately; re-runs pipeline
-  - Interactive (to build): pipeline blocks on stdin prompt
-- **Decision:** Both async and interactive modes needed.
+  - `SHIELDCLAW_AUTO_APPROVE=1`: auto-approve all (CI mode) — **fully implemented**
+  - Async (broken): orchestrator stops with findings in `SCORED` state; `shieldclaw approve` CLI exists but queries for `AWAITING_APPROVAL` which nothing writes — the transition `SCORED → AWAITING_APPROVAL` is missing from the orchestrator. Fix tracked in #48.
+  - Interactive (to build): pipeline blocks on stdin prompt — not yet implemented, tracked in #48
+- **Decision:** Both async and interactive modes needed. Async requires the orchestrator to write `AWAITING_APPROVAL` before stopping; interactive requires a blocking stdin loop.
 
 ### Stage 5: PoC Generate
 - **Module:** `intelligence/poc_generator.py` + `intelligence/parser.py`
@@ -228,7 +228,7 @@ All inter-stage data is persisted to SQLite. Each finding has a state (`INGESTED
 
 | Item | Reason |
 |------|--------|
-| v0.3 patch generation / remediation output | Not implemented; mentioned in README as future |
+| v0.3 patch generation / remediation output | Not implemented; specified in ADR-009 as v0.3 work (triple-verification patch loop) |
 | LLM score influencing verdict | Deferred pending empirical accuracy data |
 | Multi-variant exploit generation per finding | Future; 1:1 is the v0.2 model |
 | Custom seccomp profiles | Docker default is sufficient for v0.2 |
