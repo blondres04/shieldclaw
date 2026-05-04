@@ -41,7 +41,7 @@ _LOG = logging.getLogger(__name__)
 _DOCKER_INFO_TIMEOUT = 15.0
 _COMPOSE_UP_TIMEOUT_DEFAULT = 120.0
 _START_POLL_INTERVAL = 2.0
-_START_WAIT_SECONDS = 60.0
+_START_WAIT_SECONDS = 120.0
 
 
 def _env_float(name: str, default: float) -> float:
@@ -66,10 +66,10 @@ def compose_up_timeout_seconds() -> float:
 def resolve_compose_start_wait_seconds(local_default: float) -> float:
     """Return readiness polling budget after compose ``up``.
 
-    When ``SHIELDCLAW_COMPOSE_START_WAIT_SECONDS`` is set (GitHub Actions integration
-    jobs), it replaces ``local_default``.
+    Reads ``SHIELDCLAW_COMPOSE_START_TIMEOUT`` (same variable as ``_compose_start_timeout``).
+    When unset, falls back to ``local_default``.
     """
-    return _env_float("SHIELDCLAW_COMPOSE_START_WAIT_SECONDS", local_default)
+    return _env_float("SHIELDCLAW_COMPOSE_START_TIMEOUT", local_default)
 
 
 # Default tag for the pre-built attacker image.  Override via
@@ -80,6 +80,24 @@ _DETONATE_IMAGE_DEFAULT = "ghcr.io/blondres04/shieldclaw-attacker:0.1"
 def _detonate_image() -> str:
     """Return the attacker image tag, consulting ``SHIELDCLAW_ATTACKER_IMAGE``."""
     return os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", _DETONATE_IMAGE_DEFAULT)
+
+
+def _compose_start_timeout() -> float:
+    """Return the compose startup wait timeout from ``SHIELDCLAW_COMPOSE_START_TIMEOUT``.
+
+    Falls back to ``_START_WAIT_SECONDS`` when the variable is unset or invalid.
+    """
+    raw = os.environ.get("SHIELDCLAW_COMPOSE_START_TIMEOUT", "")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            _LOG.warning(
+                "SHIELDCLAW_COMPOSE_START_TIMEOUT=%r is not a valid float; using default %s s",
+                raw,
+                _START_WAIT_SECONDS,
+            )
+    return _START_WAIT_SECONDS
 
 
 def compose_project_name(result_id: str) -> str:
@@ -126,15 +144,15 @@ class DockerOrchestrator:
 
         Args:
             start_wait_seconds: Maximum time to wait for compose services after ``up``.
-                When omitted, uses ``resolve_compose_start_wait_seconds(_START_WAIT_SECONDS)``.
+                When ``None`` (the default), the value is read from the
+                ``SHIELDCLAW_COMPOSE_START_TIMEOUT`` environment variable, falling back
+                to ``120`` seconds when the variable is unset.
             start_poll_interval: Sleep interval between readiness probes.
             post_up_grace_seconds: Extra sleep after healthcheck gating completes.
-                Reduced from 10 s to 2 s now that readiness is healthcheck-gated.
+                Reduced from 10 s to 2 s now that readiness is healthcheck-gating.
         """
         self._start_wait = (
-            start_wait_seconds
-            if start_wait_seconds is not None
-            else resolve_compose_start_wait_seconds(_START_WAIT_SECONDS)
+            _compose_start_timeout() if start_wait_seconds is None else start_wait_seconds
         )
         self._poll_interval = start_poll_interval
         self._post_up_grace = post_up_grace_seconds
@@ -567,7 +585,7 @@ class DockerOrchestrator:
 
         Returns:
             ``True`` when the container is ``running`` and health is ``healthy``
-            or ``<no value>`` (no healthcheck configured).  ``False`` otherwise.
+            or ``none`` (no healthcheck configured).  ``False`` otherwise.
         """
         for sep in ("-", "_"):
             container = f"{project}{sep}{service_name}{sep}1"
@@ -575,7 +593,7 @@ class DockerOrchestrator:
                 "docker",
                 "inspect",
                 "--format",
-                "{{.State.Health.Status}}\t{{.State.Status}}",
+                "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\t{{.State.Status}}",
                 container,
             ]
             _LOG.debug("Running command: %s", cmd)
@@ -597,8 +615,8 @@ class DockerOrchestrator:
             health, _, status = output.partition("\t")
             if status.strip() != "running":
                 return False
-            # "<no value>" means no healthcheck is configured — treat as passing.
-            return health.strip() in ("healthy", "<no value>", "")
+            # "none" means no healthcheck is configured — treat as passing.
+            return health.strip() in ("healthy", "none", "")
         return False
 
     def _wait_for_compose_ready(

@@ -165,6 +165,7 @@ jobs:
         if: steps.docker_check.outputs.available == 'true'
         env:
           SHIELDCLAW_ATTACKER_IMAGE: shieldclaw-attacker:ci
+          SHIELDCLAW_COMPOSE_START_TIMEOUT: "240"
         run: >-
           pytest
           -m integration
