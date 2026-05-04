@@ -2,19 +2,19 @@
 
 Classification order (evaluated top-to-bottom; first match wins):
 
-1. **OUT_OF_SCOPE by rule-id prefix** — rules whose check_id starts with
+1. **OUT_OF_SCOPE by rule-id prefix** - rules whose check_id starts with
    ``dockerfile.``, ``terraform.``, ``kubernetes.``, ``secrets.``, or
    ``license.`` describe infrastructure or secret-detection concerns that the
    exploit pipeline cannot verify dynamically.
 
-2. **OUT_OF_SCOPE by severity + CWE absence** — an ``INFO``-severity finding
+2. **OUT_OF_SCOPE by severity + CWE absence** - an ``INFO``-severity finding
    with no CWE attached is informational only; no exploit detonation is useful.
 
-3. **CWE lookup** — the first CWE id in ``finding.cwe`` that exists in
-   ``_CWE_VERDICTS`` determines the verdict.  CWE ids are matched after
-   stripping the ``CWE-`` prefix and normalising to uppercase.
+3. **CWE lookup** - mapped CWEs are resolved conservatively:
+   ``STATIC_ONLY`` wins whenever any mapped CWE requires it, otherwise the
+   mapped dynamic verdict is used.
 
-4. **Default fallback** — STATIC_ONLY with an explanatory reason.
+4. **Default fallback** - STATIC_ONLY with an explanatory reason.
 
 Public API
 ----------
@@ -23,11 +23,15 @@ Public API
 
 from __future__ import annotations
 
+import logging
+
 from shieldclaw.models import Finding, TriagedFinding, TriageVerdict
 
+_LOG = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# CWE → verdict map (module-level constant; order is significant only within
-# the dict for documentation purposes — actual priority is handled by the
+# CWE -> verdict map (module-level constant; order is significant only within
+# the dict for documentation purposes - actual priority is handled by the
 # classifier logic above).
 # ---------------------------------------------------------------------------
 _DV = TriageVerdict.DYNAMICALLY_VERIFIABLE
@@ -69,21 +73,9 @@ _OUT_OF_SCOPE_PREFIXES: tuple[str, ...] = (
 def classify(finding: Finding) -> TriagedFinding:
     """Classify a ``Finding`` into one of three triage verdicts.
 
-    The classification is **pure** and **deterministic** — the same input always
-    produces the same output.  No network calls, no LLM inference, no I/O.
-
-    Classification order (see module docstring for full rationale):
-
-    1. Out-of-scope rule-id prefixes.
-    2. INFO severity with no CWE.
-    3. CWE lookup in ``_CWE_VERDICTS``.
-    4. Default STATIC_ONLY fallback.
-
-    Args:
-        finding: The SAST finding to classify.
-
-    Returns:
-        A ``TriagedFinding`` with the assigned verdict and a short reason string.
+    The classification is pure and deterministic - the same input always
+    produces the same output. No network calls, no LLM inference, no I/O
+    beyond warning logs for unmapped CWEs.
     """
     rule_lower = finding.rule_id.lower()
 
@@ -104,17 +96,39 @@ def classify(finding: Finding) -> TriagedFinding:
             reason="INFO severity with no CWE; informational only",
         )
 
-    # Step 3: CWE lookup — first CWE that maps wins.
+    # Step 3: resolve mapped CWEs conservatively and log unmapped ones.
+    mapped_cwes: list[tuple[str, TriageVerdict]] = []
+    unmapped_cwes: list[str] = []
     for cwe_raw in finding.cwe:
-        # Normalise "CWE-89: description" → "CWE-89"
         cwe_key = cwe_raw.split(":")[0].strip().upper()
         verdict = _CWE_VERDICTS.get(cwe_key)
-        if verdict is not None:
+        if verdict is None:
+            unmapped_cwes.append(cwe_key)
+        else:
+            mapped_cwes.append((cwe_key, verdict))
+
+    if mapped_cwes:
+        verdicts = {verdict for _, verdict in mapped_cwes}
+        if TriageVerdict.STATIC_ONLY in verdicts:
+            detail = ", ".join(f"{cwe}={verdict.value}" for cwe, verdict in mapped_cwes)
             return TriagedFinding(
                 finding=finding,
-                verdict=verdict,
-                reason=f"{cwe_key} mapped to {verdict.value}",
+                verdict=TriageVerdict.STATIC_ONLY,
+                reason=f"mixed/STATIC_ONLY CWE mappings resolved conservatively: {detail}",
             )
+        first_cwe, first_verdict = mapped_cwes[0]
+        return TriagedFinding(
+            finding=finding,
+            verdict=first_verdict,
+            reason=f"{first_cwe} mapped to {first_verdict.value}",
+        )
+
+    if unmapped_cwes:
+        _LOG.warning(
+            "Unmapped CWE ids for %s defaulting to STATIC_ONLY: %s",
+            finding.rule_id,
+            ", ".join(unmapped_cwes),
+        )
 
     # Step 4: default fallback.
     return TriagedFinding(

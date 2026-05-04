@@ -204,18 +204,30 @@ def test_default_fallback_is_static_only() -> None:
 
 
 def test_info_severity_with_cwe_is_not_out_of_scope() -> None:
-    """INFO + known CWE must NOT be OUT_OF_SCOPE — it gets the CWE-mapped verdict."""
+    """INFO + known CWE must NOT be OUT_OF_SCOPE; it gets the CWE-mapped verdict."""
     f = _finding(rule_id="python.rule", severity="INFO", cwe=("CWE-89",))
     result = classify(f)
-    # CWE-89 wins over the INFO+no-CWE rule because the rule requires BOTH conditions.
     assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
 
 
-def test_first_matching_cwe_wins() -> None:
-    """When a finding has multiple CWEs the first matching one determines verdict."""
-    # CWE-89 (DV) listed before CWE-328 (SO) — DV must win.
-    f = _finding(cwe=("CWE-89", "CWE-328"))
-    assert classify(f).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+def test_multi_cwe_conflict_resolves_conservatively_to_static_only() -> None:
+    """Mixed DV + STATIC_ONLY CWE mappings must resolve to STATIC_ONLY."""
+    f = _finding(cwe=("CWE-89", "CWE-798"))
+    result = classify(f)
+    assert result.verdict == TriageVerdict.STATIC_ONLY
+    assert "STATIC_ONLY" in result.reason
+
+
+def test_unmapped_cwe_defaults_static_only_and_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unknown CWEs should default to STATIC_ONLY and emit a warning for operators."""
+    f = _finding(cwe=("CWE-9999",))
+    with caplog.at_level("WARNING"):
+        result = classify(f)
+    assert result.verdict == TriageVerdict.STATIC_ONLY
+    assert "CWE-9999" in caplog.text
+    assert "unmapped" in caplog.text.lower()
 
 
 def test_license_prefix_is_out_of_scope() -> None:
