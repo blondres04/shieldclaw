@@ -29,7 +29,7 @@ _LOG = logging.getLogger(__name__)
 _DOCKER_INFO_TIMEOUT = 15.0
 _COMPOSE_UP_TIMEOUT = 120.0
 _START_POLL_INTERVAL = 2.0
-_START_WAIT_SECONDS = 60.0
+_START_WAIT_SECONDS = 120.0
 
 # Default tag for the pre-built attacker image.  Override via
 # SHIELDCLAW_ATTACKER_IMAGE to pin a different version or registry.
@@ -39,6 +39,24 @@ _DETONATE_IMAGE_DEFAULT = "ghcr.io/blondres04/shieldclaw-attacker:0.1"
 def _detonate_image() -> str:
     """Return the attacker image tag, consulting ``SHIELDCLAW_ATTACKER_IMAGE``."""
     return os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", _DETONATE_IMAGE_DEFAULT)
+
+
+def _compose_start_timeout() -> float:
+    """Return the compose startup wait timeout from ``SHIELDCLAW_COMPOSE_START_TIMEOUT``.
+
+    Falls back to ``_START_WAIT_SECONDS`` when the variable is unset or invalid.
+    """
+    raw = os.environ.get("SHIELDCLAW_COMPOSE_START_TIMEOUT", "")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            _LOG.warning(
+                "SHIELDCLAW_COMPOSE_START_TIMEOUT=%r is not a valid float; using default %s s",
+                raw,
+                _START_WAIT_SECONDS,
+            )
+    return _START_WAIT_SECONDS
 
 
 def compose_project_name(result_id: str) -> str:
@@ -77,7 +95,7 @@ class DockerOrchestrator:
     def __init__(
         self,
         *,
-        start_wait_seconds: float = _START_WAIT_SECONDS,
+        start_wait_seconds: float | None = None,
         start_poll_interval: float = _START_POLL_INTERVAL,
         post_up_grace_seconds: float = 2.0,
     ) -> None:
@@ -85,11 +103,16 @@ class DockerOrchestrator:
 
         Args:
             start_wait_seconds: Maximum time to wait for compose services after ``up``.
+                When ``None`` (the default), the value is read from the
+                ``SHIELDCLAW_COMPOSE_START_TIMEOUT`` environment variable, falling back
+                to ``120`` seconds when the variable is unset.
             start_poll_interval: Sleep interval between readiness probes.
             post_up_grace_seconds: Extra sleep after healthcheck gating completes.
                 Reduced from 10 s to 2 s now that readiness is healthcheck-gated.
         """
-        self._start_wait = start_wait_seconds
+        self._start_wait = (
+            _compose_start_timeout() if start_wait_seconds is None else start_wait_seconds
+        )
         self._poll_interval = start_poll_interval
         self._post_up_grace = post_up_grace_seconds
 

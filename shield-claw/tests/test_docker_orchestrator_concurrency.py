@@ -69,12 +69,10 @@ def test_concurrent_runs_do_not_interfere(tmp_path: Path) -> None:
     result_id_b = str(uuid.uuid4())
 
     orch_a = DockerOrchestrator(
-        start_wait_seconds=120.0,
         start_poll_interval=1.0,
         post_up_grace_seconds=0.0,
     )
     orch_b = DockerOrchestrator(
-        start_wait_seconds=120.0,
         start_poll_interval=1.0,
         post_up_grace_seconds=0.0,
     )
