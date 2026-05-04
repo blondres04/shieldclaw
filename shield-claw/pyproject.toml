@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shieldclaw"
 version = "0.1.0"
-description = "ShieldClaw security scanning and validation pipeline"
+description = "Evidence-backed SAST verification engine with LLM-guided PoCs, human approval, and hardened Docker detonation"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "ShieldClaw Contributors" }]
