@@ -521,7 +521,7 @@ class DockerOrchestrator:
 
         Returns:
             ``True`` when the container is ``running`` and health is ``healthy``
-            or ``<no value>`` (no healthcheck configured).  ``False`` otherwise.
+            or ``none`` (no healthcheck configured).  ``False`` otherwise.
         """
         for sep in ("-", "_"):
             container = f"{project}{sep}{service_name}{sep}1"
@@ -529,7 +529,7 @@ class DockerOrchestrator:
                 "docker",
                 "inspect",
                 "--format",
-                "{{.State.Health.Status}}\t{{.State.Status}}",
+                "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\t{{.State.Status}}",
                 container,
             ]
             _LOG.debug("Running command: %s", cmd)
@@ -551,8 +551,8 @@ class DockerOrchestrator:
             health, _, status = output.partition("\t")
             if status.strip() != "running":
                 return False
-            # "<no value>" means no healthcheck is configured — treat as passing.
-            return health.strip() in ("healthy", "<no value>", "")
+            # "none" means no healthcheck is configured — treat as passing.
+            return health.strip() in ("healthy", "none", "")
         return False
 
     def _wait_for_compose_ready(
