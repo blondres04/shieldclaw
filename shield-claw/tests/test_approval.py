@@ -7,7 +7,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from shieldclaw.approval.gate import (
     ApprovalContext,
@@ -17,6 +17,7 @@ from shieldclaw.approval.gate import (
 )
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.models import (
+    DetonationOutcome,
     ExploitabilityScore,
     ExploitPayload,
     Finding,
@@ -70,6 +71,57 @@ class _ProviderThatScores(LLMProvider):
                 "reasoning": "Direct SQL injection.",
             }
         )
+
+
+class _InteractiveProvider(LLMProvider):
+    """Provider that scores findings and emits a valid PoC when approved."""
+
+    def generate_exploit(self, context: ScanContext) -> ExploitPayload:
+        raise NotImplementedError
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        if '"score"' in system_prompt or "exploitability" in system_prompt.lower():
+            return json.dumps(
+                {
+                    "score": 0.9,
+                    "attack_surface": "NETWORK",
+                    "prerequisites": [],
+                    "reasoning": "Direct SQL injection.",
+                }
+            )
+        return json.dumps(
+            {
+                "language": "python",
+                "target_dns": "web",
+                "raw_code": "import sys\nsys.exit(0)\n",
+                "execution_command": "python -",
+            }
+        )
+
+
+def _write_single_finding_fixture(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "app.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_rejected_finding_is_skipped(tmp_path: Path) -> None:
@@ -197,3 +249,79 @@ def test_format_approval_context_includes_score() -> None:
     assert "0.90" in text
     assert "NETWORK" in text
     assert "AWAITING_APPROVAL" not in text  # should not appear in format output
+
+
+def test_interactive_approval_allows_finding_to_proceed(tmp_path: Path) -> None:
+    """Interactive approval should record APPROVED and continue to detonation."""
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  web:\n    image: nginx:alpine\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text("query = request.args['id']\n", encoding="utf-8")
+    fixture = tmp_path / "semgrep-one.json"
+    _write_single_finding_fixture(fixture)
+
+    docker = MagicMock()
+    docker.detonate.return_value = DetonationOutcome(exit_code=0, evidence=())
+    docker.get_target_container_id.return_value = "target-1"
+
+    with patch.dict(os.environ, {"SHIELDCLAW_AUTO_APPROVE": ""}, clear=False):
+        with patch("builtins.input", return_value="y"):
+            orch = Orchestrator(
+                provider_factory=lambda _: _InteractiveProvider(),
+                docker_orchestrator=docker,
+            )
+            result = orch.run(
+                target_dir=str(tmp_path),
+                semgrep_output=str(fixture),
+                interactive=True,
+            )
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_called_once()
+
+    store = ScanStore(str(tmp_path))
+    latest = store.get_latest_scan(str(tmp_path))
+    assert latest is not None
+    finding_row = store.list_findings(latest.scan_id)[0]
+    approval = store.get_approval(finding_row.finding_id)
+    assert approval is not None
+    assert approval["decision"] == "APPROVED"
+    assert finding_row.state == "VERDICTED"
+
+
+def test_interactive_rejection_skips_detonation(tmp_path: Path) -> None:
+    """Interactive rejection should record REJECTED and skip detonation."""
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  web:\n    image: nginx:alpine\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text("query = request.args['id']\n", encoding="utf-8")
+    fixture = tmp_path / "semgrep-one.json"
+    _write_single_finding_fixture(fixture)
+
+    docker = MagicMock()
+
+    with patch.dict(os.environ, {"SHIELDCLAW_AUTO_APPROVE": ""}, clear=False):
+        with patch("builtins.input", return_value="n"):
+            orch = Orchestrator(
+                provider_factory=lambda _: _InteractiveProvider(),
+                docker_orchestrator=docker,
+            )
+            result = orch.run(
+                target_dir=str(tmp_path),
+                semgrep_output=str(fixture),
+                interactive=True,
+            )
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_not_called()
+
+    store = ScanStore(str(tmp_path))
+    latest = store.get_latest_scan(str(tmp_path))
+    assert latest is not None
+    finding_row = store.list_findings(latest.scan_id)[0]
+    approval = store.get_approval(finding_row.finding_id)
+    assert approval is not None
+    assert approval["decision"] == "REJECTED"
+    assert finding_row.state == "REJECTED"

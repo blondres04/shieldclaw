@@ -8,11 +8,14 @@ only formatting, environment-variable checks, and helper functions.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
+from typing import Literal, TextIO
 
 from shieldclaw.models import ExploitabilityScore, Finding, TriagedFinding
 
 _AUTO_APPROVE_ENV = "SHIELDCLAW_AUTO_APPROVE"
+InteractiveDecision = Literal["APPROVED", "REJECTED", "SKIPPED"]
 
 
 def is_auto_approve_enabled() -> bool:
@@ -100,3 +103,36 @@ def format_approval_context(ctx: ApprovalContext) -> str:
         f"{poc_section}\n"
         f"{'=' * 72}\n"
     )
+
+
+def prompt_for_approval(
+    ctx: ApprovalContext,
+    *,
+    input_stream: TextIO | None = None,
+    output_stream: TextIO | None = None,
+) -> InteractiveDecision:
+    """Prompt on stdin until the reviewer chooses approve, reject, or skip."""
+    reader = input_stream or sys.stdin
+    writer = output_stream or sys.stderr
+
+    print(format_approval_context(ctx), file=writer)
+    print("Approve this finding? [y]es / [n]o / [s]kip", file=writer)
+
+    while True:
+        print("> ", end="", file=writer, flush=True)
+        if input_stream is None:
+            response = input()
+        else:
+            response = reader.readline()
+            if response == "":
+                return "SKIPPED"
+
+        normalized = response.strip().lower()
+        if normalized == "y":
+            return "APPROVED"
+        if normalized == "n":
+            return "REJECTED"
+        if normalized == "s":
+            return "SKIPPED"
+
+        print("Enter y, n, or s.", file=writer)

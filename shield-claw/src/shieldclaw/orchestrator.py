@@ -40,6 +40,7 @@ from shieldclaw.intelligence.ollama import OllamaProvider
 from shieldclaw.intelligence.openai_provider import OpenAIProvider
 from shieldclaw.models import (
     DetonationOutcome,
+    ExploitabilityScore,
     ExploitPayload,
     Finding,
     FindingState,
@@ -47,6 +48,7 @@ from shieldclaw.models import (
     SASTFindingReport,
     ScanContext,
     ScanResult,
+    TriagedFinding,
     TriageVerdict,
 )
 from shieldclaw.reporting.builder import ReportBuilder
@@ -262,6 +264,7 @@ class Orchestrator:
         # keyword-only SAST pipeline extras
         semgrep_output: str | None = None,
         resume_scan_id: str | None = None,
+        interactive: bool = False,
         # allow old positional callers to pass target_dir positionally
         _target_dir: str | None = None,
     ) -> ScanResult:
@@ -284,6 +287,7 @@ class Orchestrator:
             output_path: JSON sink; ``None`` prints to stdout.
             semgrep_output: Path to Semgrep --json report (SAST mode).
             resume_scan_id: Existing scan UUID to resume.
+            interactive: Prompt for inline approval during the SAST pipeline.
 
         Returns:
             ``ScanResult`` containing run metadata.
@@ -300,6 +304,7 @@ class Orchestrator:
                 timeout=timeout,
                 output_path=output_path,
                 resume_scan_id=resume_scan_id,
+                interactive=interactive,
             )
         return self._run_legacy(
             target_dir=resolved_target,
@@ -322,9 +327,15 @@ class Orchestrator:
         timeout: int,
         output_path: str | None,
         resume_scan_id: str | None,
+        interactive: bool,
     ) -> ScanResult:
         """Ingest → triage → score → [approve → PoC → detonate → verdict] pipeline."""
-        from shieldclaw.approval.gate import get_current_user, is_auto_approve_enabled
+        from shieldclaw.approval.gate import (
+            ApprovalContext,
+            get_current_user,
+            is_auto_approve_enabled,
+            prompt_for_approval,
+        )
         from shieldclaw.ingest.semgrep import parse_semgrep_json
         from shieldclaw.intelligence.poc_generator import PocGenerator
         from shieldclaw.persistence.store import ScanStore
@@ -339,6 +350,7 @@ class Orchestrator:
         scan_id: str | None = None
         store: object | None = None
         observer_warnings_by_finding: dict[str, tuple[ObserverWarning, ...]] = {}
+        scores_by_finding_id: dict[str, ExploitabilityScore] = {}
 
         resolved_target = str(Path(target_dir).expanduser().resolve())
 
@@ -386,6 +398,7 @@ class Orchestrator:
                     excerpt = _extract_source_lines(resolved_target, finding)
                     score = scorer.score(finding, excerpt, compose_yaml)
                     store.record_score(str(finding.finding_id), score)
+                    scores_by_finding_id[row.finding_id] = score
                     _LOG.debug(
                         "Scored %s: %.2f (%s)", row.finding_id, score.score, score.attack_surface
                     )
@@ -404,7 +417,55 @@ class Orchestrator:
             # Auto-approve gate → PoC generate → detonate → verdict
             # Only runs when SHIELDCLAW_AUTO_APPROVE=1 is set.
             # Without it the pipeline stops here (findings stay SCORED).
-            if is_auto_approve_enabled():
+            if interactive and is_auto_approve_enabled():
+                raise ShieldClawError(
+                    "--interactive cannot be combined with SHIELDCLAW_AUTO_APPROVE=1."
+                )
+
+            if interactive:
+                decided_by = get_current_user()
+                scored_dv = [
+                    r
+                    for r in store.get_pending_findings(scan_id, "SCORED")
+                    if r.triage_verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE.value
+                ]
+                for row in scored_dv:
+                    finding = _finding_from_row(row)
+                    triaged = TriagedFinding(
+                        finding=finding,
+                        verdict=TriageVerdict(row.triage_verdict),
+                        reason=row.triage_reason or "",
+                    )
+                    decision = prompt_for_approval(
+                        ApprovalContext(
+                            finding=finding,
+                            triaged=triaged,
+                            score=scores_by_finding_id.get(row.finding_id),
+                            source_excerpt=_extract_source_lines(resolved_target, finding),
+                            compose_yaml=compose_yaml,
+                        )
+                    )
+                    if decision == "APPROVED":
+                        store.record_approval(
+                            row.finding_id,
+                            "APPROVED",
+                            decided_by,
+                            note="approved via --interactive",
+                            auto=False,
+                        )
+                        store.update_finding_state(row.finding_id, "APPROVED")
+                    elif decision == "REJECTED":
+                        store.record_approval(
+                            row.finding_id,
+                            "REJECTED",
+                            decided_by,
+                            note="rejected via --interactive",
+                            auto=False,
+                        )
+                        store.update_finding_state(row.finding_id, "REJECTED")
+                    else:
+                        _LOG.info("Interactive approval skipped for finding %s", row.finding_id)
+            elif is_auto_approve_enabled():
                 decided_by = get_current_user()
                 scored_dv = [
                     r
@@ -424,47 +485,45 @@ class Orchestrator:
                     )
                     store.update_finding_state(row.finding_id, "APPROVED")
 
-                approved = store.get_pending_findings(scan_id, "APPROVED")
-                if approved:
-                    poc_gen = PocGenerator(provider, model_name=provider_name)
-                    compose_path = _resolve_compose_path(resolved_target)
-                    store.update_scan_state(scan_id, "DETONATING")
+            approved = store.get_pending_findings(scan_id, "APPROVED")
+            if approved:
+                poc_gen = PocGenerator(provider, model_name=provider_name)
+                compose_path = _resolve_compose_path(resolved_target)
+                store.update_scan_state(scan_id, "DETONATING")
 
-                    if compose_path:
-                        sandbox_token = str(uuid.uuid4())
-                        network = compose_default_network(sandbox_token)
-                        try:
-                            self._docker.start_sandbox(compose_path, sandbox_token)
-                            target_cid = self._docker.get_target_container_id(
-                                compose_path, sandbox_token
-                            )
-                            for row in approved:
-                                observer_warnings_by_finding[row.finding_id] = (
-                                    self._detonate_finding(
-                                        row=row,
-                                        resolved_target=resolved_target,
-                                        compose_yaml=compose_yaml,
-                                        poc_gen=poc_gen,
-                                        provider_name=provider_name,
-                                        store=store,
-                                        network=network,
-                                        sandbox_token=sandbox_token,
-                                        timeout=timeout,
-                                        target_cid=target_cid,
-                                        synthesize=synthesize,
-                                    )
-                                )
-                        finally:
-                            self._docker.teardown(compose_path, sandbox_token)
-                    else:
+                if compose_path:
+                    sandbox_token = str(uuid.uuid4())
+                    network = compose_default_network(sandbox_token)
+                    try:
+                        self._docker.start_sandbox(compose_path, sandbox_token)
+                        target_cid = self._docker.get_target_container_id(
+                            compose_path, sandbox_token
+                        )
                         for row in approved:
-                            store.record_verdict(
-                                row.finding_id,
-                                "INCONCLUSIVE",
-                                0.0,
-                                "No compose file found; detonation skipped.",
+                            observer_warnings_by_finding[row.finding_id] = self._detonate_finding(
+                                row=row,
+                                resolved_target=resolved_target,
+                                compose_yaml=compose_yaml,
+                                poc_gen=poc_gen,
+                                provider_name=provider_name,
+                                store=store,
+                                network=network,
+                                sandbox_token=sandbox_token,
+                                timeout=timeout,
+                                target_cid=target_cid,
+                                synthesize=synthesize,
                             )
-                            store.update_finding_state(row.finding_id, "VERDICTED")
+                    finally:
+                        self._docker.teardown(compose_path, sandbox_token)
+                else:
+                    for row in approved:
+                        store.record_verdict(
+                            row.finding_id,
+                            "INCONCLUSIVE",
+                            0.0,
+                            "No compose file found; detonation skipped.",
+                        )
+                        store.update_finding_state(row.finding_id, "VERDICTED")
 
             store.update_scan_state(scan_id, "COMPLETE")
             _LOG.info("Scan %s complete", scan_id)

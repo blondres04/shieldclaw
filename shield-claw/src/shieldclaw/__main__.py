@@ -115,6 +115,11 @@ def validate_run_configuration(args: Namespace) -> None:
     if timeout < 1 or timeout > 120:
         raise CLIValidationError("Timeout must be a positive integer between 1 and 120.")
 
+    if getattr(args, "interactive", False) and os.environ.get("SHIELDCLAW_AUTO_APPROVE") == "1":
+        raise CLIValidationError(
+            "--interactive and SHIELDCLAW_AUTO_APPROVE=1 are mutually exclusive."
+        )
+
 
 def _print_triage_summary(semgrep_path: str) -> None:
     """Ingest a Semgrep report, classify all findings, and print a summary to stderr."""
@@ -242,6 +247,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write JSON report to this path instead of stdout.",
     )
+    run.add_argument(
+        "--interactive",
+        action="store_true",
+        default=False,
+        help="Prompt for per-finding approval inline instead of stopping for async review.",
+    )
 
     # ---- status ----
     status = sub.add_parser(
@@ -318,10 +329,21 @@ def _run_approve(args: Namespace) -> int:
       - Auto-approve all: ``approve <scan_id> --auto``  (requires ``SHIELDCLAW_AUTO_APPROVE=1``)
     """
     from shieldclaw.approval.gate import get_current_user, is_auto_approve_enabled
-    from shieldclaw.persistence.store import ScanStore
+    from shieldclaw.persistence.store import FindingRow, ScanStore
 
     target_dir = getattr(args, "target", None) or str(Path.cwd())
     store = ScanStore(target_dir)
+
+    def pending_for_approval() -> list[FindingRow]:
+        pending: list[FindingRow] = []
+        seen: set[str] = set()
+        for state in ("AWAITING_APPROVAL", "SCORED"):
+            for row in store.get_pending_findings(args.scan_id, state):
+                if row.finding_id in seen:
+                    continue
+                pending.append(row)
+                seen.add(row.finding_id)
+        return pending
 
     scan_row = store.load_scan(args.scan_id)
     if scan_row is None:
@@ -336,7 +358,7 @@ def _run_approve(args: Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-        pending = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+        pending = pending_for_approval()
         if not pending:
             print("No findings are awaiting approval.", file=sys.stderr)
             return 0
@@ -361,7 +383,7 @@ def _run_approve(args: Namespace) -> int:
     # -- all-pending mode --
     if args.all_pending:
         decision = "REJECTED" if args.reject else "APPROVED"
-        pending = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+        pending = pending_for_approval()
         if not pending:
             print("No findings are awaiting approval.", file=sys.stderr)
             return 0
@@ -392,7 +414,7 @@ def _run_approve(args: Namespace) -> int:
         )
         return 1
 
-    finding_rows = store.get_pending_findings(args.scan_id, "AWAITING_APPROVAL")
+    finding_rows = pending_for_approval()
     target_id = args.finding_id
     match = next((r for r in finding_rows if r.finding_id == target_id), None)
     if match is None:
@@ -471,6 +493,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=args.output,
             semgrep_output=semgrep_output,
             resume_scan_id=resume_scan_id,
+            interactive=bool(getattr(args, "interactive", False)),
         )
     except Exception as exc:  # noqa: BLE001 - CLI safety net per product spec
         _LOG.critical("Unhandled failure during orchestration: %s", exc, exc_info=True)

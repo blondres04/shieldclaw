@@ -7,6 +7,7 @@ from shieldclaw.approval.gate import (
     format_approval_context,
     get_current_user,
     is_auto_approve_enabled,
+    prompt_for_approval,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "format_approval_context",
     "get_current_user",
     "is_auto_approve_enabled",
+    "prompt_for_approval",
 ]

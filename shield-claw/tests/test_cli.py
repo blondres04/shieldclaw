@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -19,9 +20,12 @@ def _run_namespace(**kwargs: object) -> argparse.Namespace:
         "command": "run",
         "target": str(Path.cwd()),
         "diff": None,
+        "semgrep_output": None,
+        "resume_scan_id": None,
         "provider": "ollama",
         "timeout": 15,
         "output": None,
+        "interactive": False,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -68,6 +72,14 @@ def test_parser_run_defaults_timeout_to_15(tmp_path: Path) -> None:
     parser = _build_parser()
     args = parser.parse_args(["run", "--target", str(tmp_path)])
     assert args.timeout == 15
+
+
+def test_parser_run_accepts_interactive_flag(tmp_path: Path) -> None:
+    """The ``run`` subparser should expose the interactive approval flag."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    parser = _build_parser()
+    args = parser.parse_args(["run", "--target", str(tmp_path), "--interactive"])
+    assert args.interactive is True
 
 
 def test_validate_rejects_missing_target(tmp_path: Path) -> None:
@@ -125,3 +137,12 @@ def test_validate_accepts_minimal_valid_target(tmp_path: Path) -> None:
     (tmp_path / "docker-compose.yaml").write_text("services: {}\n", encoding="utf-8")
     args = _run_namespace(target=str(tmp_path))
     validate_run_configuration(args)
+
+
+def test_validate_rejects_interactive_with_auto_approve_env(tmp_path: Path) -> None:
+    """Interactive mode must not be combined with SHIELDCLAW_AUTO_APPROVE=1."""
+    (tmp_path / "docker-compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    args = _run_namespace(target=str(tmp_path), interactive=True)
+    with patch.dict("os.environ", {"SHIELDCLAW_AUTO_APPROVE": "1"}):
+        with pytest.raises(CLIValidationError, match="mutually exclusive"):
+            validate_run_configuration(args)
