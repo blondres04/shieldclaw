@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
 import uuid
+from pathlib import Path
 from typing import Literal
 
 import pytest
 
 from shieldclaw.models import Finding, TriagedFinding, TriageVerdict
+from shieldclaw.triage import classifier as classifier_module
 from shieldclaw.triage.classifier import classify
 
 # ---------------------------------------------------------------------------
@@ -242,3 +245,62 @@ def test_cwe_with_description_suffix_normalised() -> None:
     f = _finding(cwe=("CWE-89: SQL Injection (see OWASP Top 10)",))
     result = classify(f)
     assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+
+
+def _reload_classifier() -> None:
+    """Reload the classifier module so import-time config is re-evaluated."""
+    importlib.reload(classifier_module)
+
+
+def test_custom_cwe_config_extends_default_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user config file may add new CWE mappings without editing source code."""
+    config_path = tmp_path / "cwe_verdicts.toml"
+    config_path.write_text(
+        '[cwe_verdicts]\n"CWE-1337" = "DYNAMICALLY_VERIFIABLE"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("SHIELDCLAW_CWE_VERDICTS_PATH", str(config_path))
+    _reload_classifier()
+    try:
+        custom = _finding(cwe=("CWE-1337",))
+        default = _finding(cwe=("CWE-89",))
+
+        assert classify(custom).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+        assert classify(default).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+    finally:
+        monkeypatch.delenv("SHIELDCLAW_CWE_VERDICTS_PATH", raising=False)
+        _reload_classifier()
+
+
+def test_missing_user_cwe_config_falls_back_to_bundled_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing user config must not break triage; bundled defaults still apply."""
+    missing_path = tmp_path / "missing.toml"
+    monkeypatch.setenv("SHIELDCLAW_CWE_VERDICTS_PATH", str(missing_path))
+    _reload_classifier()
+    try:
+        result = classify(_finding(cwe=("CWE-89",)))
+        assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+    finally:
+        monkeypatch.delenv("SHIELDCLAW_CWE_VERDICTS_PATH", raising=False)
+        _reload_classifier()
+
+
+def test_malformed_user_cwe_config_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed config should raise immediately when the classifier loads."""
+    config_path = tmp_path / "cwe_verdicts.toml"
+    config_path.write_text('[cwe_verdicts]\n"CWE-89" = 123\n', encoding="utf-8")
+
+    monkeypatch.setenv("SHIELDCLAW_CWE_VERDICTS_PATH", str(config_path))
+    try:
+        with pytest.raises(ValueError, match="CWE verdict"):
+            _reload_classifier()
+    finally:
+        monkeypatch.delenv("SHIELDCLAW_CWE_VERDICTS_PATH", raising=False)
+        _reload_classifier()

@@ -19,46 +19,28 @@ Classification order (evaluated top-to-bottom; first match wins):
 Public API
 ----------
 - ``classify(finding: Finding) -> TriagedFinding``
+
+Operators may extend the bundled CWE verdict map by placing a TOML file at
+``~/.shieldclaw/cwe_verdicts.toml`` or by pointing
+``SHIELDCLAW_CWE_VERDICTS_PATH`` at an alternate file. The custom file
+overlays the bundled defaults and is validated at import time.
 """
 
 from __future__ import annotations
 
+import importlib.resources
 import logging
+import os
+import tomllib
+from pathlib import Path
+from typing import Any
 
 from shieldclaw.models import Finding, TriagedFinding, TriageVerdict
 
 _LOG = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# CWE -> verdict map (module-level constant; order is significant only within
-# the dict for documentation purposes - actual priority is handled by the
-# classifier logic above).
-# ---------------------------------------------------------------------------
-_DV = TriageVerdict.DYNAMICALLY_VERIFIABLE
-_SO = TriageVerdict.STATIC_ONLY
-
-_CWE_VERDICTS: dict[str, TriageVerdict] = {
-    # --- Dynamically verifiable ---
-    "CWE-22": _DV,  # Path traversal
-    "CWE-78": _DV,  # OS command injection
-    "CWE-79": _DV,  # Cross-site scripting (XSS)
-    "CWE-89": _DV,  # SQL injection
-    "CWE-94": _DV,  # Code injection
-    "CWE-352": _DV,  # CSRF
-    "CWE-434": _DV,  # Unrestricted file upload
-    "CWE-502": _DV,  # Deserialization of untrusted data
-    "CWE-601": _DV,  # Open redirect
-    "CWE-611": _DV,  # XML external entity (XXE)
-    "CWE-918": _DV,  # Server-side request forgery (SSRF)
-    # --- Static analysis only ---
-    "CWE-259": _SO,  # Use of hard-coded password
-    "CWE-321": _SO,  # Use of hard-coded cryptographic key
-    "CWE-326": _SO,  # Inadequate encryption strength
-    "CWE-327": _SO,  # Use of broken or risky cryptographic algorithm
-    "CWE-328": _SO,  # Use of weak hash
-    "CWE-330": _SO,  # Use of insufficiently random values
-    "CWE-798": _SO,  # Use of hard-coded credentials
-}
+_CWE_VERDICTS_ENV = "SHIELDCLAW_CWE_VERDICTS_PATH"
+_DEFAULT_CWE_VERDICTS_RESOURCE = "cwe_verdicts.toml"
 
 # Rule-id prefix patterns that are always out of scope.
 _OUT_OF_SCOPE_PREFIXES: tuple[str, ...] = (
@@ -68,6 +50,86 @@ _OUT_OF_SCOPE_PREFIXES: tuple[str, ...] = (
     "secrets.",
     "license.",
 )
+
+
+def _user_cwe_verdicts_path() -> Path:
+    """Return the operator override path for the CWE verdict config."""
+    raw_override = os.environ.get(_CWE_VERDICTS_ENV)
+    if raw_override:
+        return Path(raw_override).expanduser()
+    return Path.home() / ".shieldclaw" / _DEFAULT_CWE_VERDICTS_RESOURCE
+
+
+def _read_packaged_cwe_verdicts() -> dict[str, Any]:
+    """Load the bundled default config shipped inside the package."""
+    resource = importlib.resources.files("shieldclaw.triage").joinpath(
+        _DEFAULT_CWE_VERDICTS_RESOURCE
+    )
+    return tomllib.loads(resource.read_text(encoding="utf-8"))
+
+
+def _read_user_cwe_verdicts(path: Path) -> dict[str, Any]:
+    """Load a user-supplied config file from disk."""
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _validate_cwe_verdicts(raw_config: dict[str, Any], *, source: str) -> dict[str, TriageVerdict]:
+    """Validate and normalize a parsed CWE verdict config."""
+    raw_mappings = raw_config.get("cwe_verdicts")
+    if not isinstance(raw_mappings, dict):
+        raise ValueError(f"CWE verdict config {source} must define a [cwe_verdicts] table")
+
+    verdicts: dict[str, TriageVerdict] = {}
+    for raw_cwe, raw_verdict in raw_mappings.items():
+        if not isinstance(raw_cwe, str):
+            raise ValueError(f"CWE verdict config {source} has a non-string CWE key")
+        if not isinstance(raw_verdict, str):
+            raise ValueError(
+                f"CWE verdict config {source} must map {raw_cwe!r} to a string verdict"
+            )
+
+        cwe_key = raw_cwe.strip().upper()
+        if not cwe_key.startswith("CWE-") or not cwe_key[4:].isdigit():
+            raise ValueError(
+                f"CWE verdict config {source} has invalid CWE key {raw_cwe!r}; "
+                "expected CWE-<number>"
+            )
+
+        verdict_key = raw_verdict.strip().upper()
+        try:
+            verdicts[cwe_key] = TriageVerdict(verdict_key)
+        except ValueError as exc:
+            valid = ", ".join(verdict.value for verdict in TriageVerdict)
+            raise ValueError(
+                f"CWE verdict config {source} has invalid verdict {raw_verdict!r} for "
+                f"{raw_cwe!r}; expected one of: {valid}"
+            ) from exc
+
+    return verdicts
+
+
+def _load_cwe_verdicts() -> dict[str, TriageVerdict]:
+    """Load bundled defaults, then overlay a user config when present."""
+    merged = _validate_cwe_verdicts(
+        _read_packaged_cwe_verdicts(),
+        source=f"package resource {_DEFAULT_CWE_VERDICTS_RESOURCE}",
+    )
+
+    user_path = _user_cwe_verdicts_path()
+    if not user_path.exists():
+        return merged
+
+    merged.update(
+        _validate_cwe_verdicts(
+            _read_user_cwe_verdicts(user_path),
+            source=str(user_path),
+        )
+    )
+    return merged
+
+
+_CWE_VERDICTS = _load_cwe_verdicts()
 
 
 def classify(finding: Finding) -> TriagedFinding:
