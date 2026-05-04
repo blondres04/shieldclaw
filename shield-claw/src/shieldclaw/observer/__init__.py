@@ -1,4 +1,4 @@
-"""Detonation observer implementations for the ShieldClaw SAST pipeline.
+"""Detonation observer implementations and shared base types.
 
 All observers implement ``DetonationObserver`` (defined in ``models.py``).
 """

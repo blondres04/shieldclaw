@@ -13,6 +13,8 @@ Public API:
              message, cwe, metavars, raw_extra)
   - TriageVerdict (Enum: DYNAMICALLY_VERIFIABLE, STATIC_ONLY, OUT_OF_SCOPE)
   - TriagedFinding (frozen dataclass: finding, verdict, reason)
+  - ObserverWarning (frozen dataclass: observer_name, message)
+  - SASTFindingReport (frozen dataclass: per-finding SAST JSON report entry)
 Depends On:
   - stdlib only (dataclasses, datetime, enum, typing, uuid)
 Used By:
@@ -110,6 +112,8 @@ class ScanResult:
     duration_seconds: float | None = None
     exploit_payload: ExploitPayload | None = None
     container_state: ContainerState | None = None
+    scan_id: UUID | None = None
+    findings: tuple[SASTFindingReport, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +235,61 @@ class ScoredFinding:
 
 
 # ---------------------------------------------------------------------------
+# Final report payloads
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ObserverWarning:
+    """Non-fatal observer failure captured during detonation.
+
+    Args:
+        observer_name: Name of the observer that failed.
+        message: Human-readable failure detail from the observer exception.
+    """
+
+    observer_name: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class SASTFindingReport:
+    """Serialized per-finding outcome included in the extended SAST JSON report.
+
+    Args:
+        finding_id: Stable identifier for the SAST finding.
+        rule_id: Semgrep rule identifier.
+        severity: Normalized Semgrep severity string.
+        path: Repository-relative file path.
+        start_line: First affected line in the source file.
+        end_line: Last affected line in the source file.
+        cwe: Tuple of associated CWE identifiers.
+        state: Latest persisted pipeline state for this finding.
+        triage_verdict: Optional triage classification string.
+        triage_reason: Optional human-readable triage explanation.
+        verdict: Optional final verdict string.
+        verdict_confidence: Optional verdict confidence.
+        verdict_summary: Optional final verdict summary.
+        observer_warnings: Non-fatal observer failures captured during detonation.
+    """
+
+    finding_id: UUID
+    rule_id: str
+    severity: Literal["INFO", "WARNING", "ERROR"]
+    path: str
+    start_line: int
+    end_line: int
+    cwe: tuple[str, ...]
+    state: str
+    triage_verdict: str | None = None
+    triage_reason: str | None = None
+    verdict: str | None = None
+    verdict_confidence: float | None = None
+    verdict_summary: str | None = None
+    observer_warnings: tuple[ObserverWarning, ...] = ()
+
+
+# ---------------------------------------------------------------------------
 # Observer protocol (interface defined here so both sandbox/ and observer/
 # can import it from the shared leaf module without cross-feature imports).
 # ---------------------------------------------------------------------------
@@ -313,10 +372,12 @@ class DetonationOutcome:
     Args:
         exit_code: Process exit code from the exploit container (124 = timeout).
         evidence: Tuple of evidence collected by all registered observers.
+        observer_warnings: Non-fatal observer failures captured during teardown.
     """
 
     exit_code: int
     evidence: tuple[ObserverEvidence, ...]
+    observer_warnings: tuple[ObserverWarning, ...] = ()
 
 
 # ---------------------------------------------------------------------------

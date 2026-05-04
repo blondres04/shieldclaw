@@ -42,6 +42,8 @@ from shieldclaw.models import (
     DetonationOutcome,
     ExploitPayload,
     Finding,
+    ObserverWarning,
+    SASTFindingReport,
     ScanContext,
     ScanResult,
     TriageVerdict,
@@ -171,6 +173,52 @@ def _finding_from_row(row: object) -> Finding:
     )
 
 
+def _build_sast_finding_reports(
+    store: object,
+    scan_id: str,
+    observer_warnings_by_finding: dict[str, tuple[ObserverWarning, ...]],
+) -> tuple[SASTFindingReport, ...]:
+    """Build per-finding JSON report entries for a persisted SAST scan."""
+    from shieldclaw.persistence.store import FindingRow, ScanStore
+
+    assert isinstance(store, ScanStore)
+    reports: list[SASTFindingReport] = []
+    for row in store.list_findings(scan_id):
+        assert isinstance(row, FindingRow)
+        verdict_row = store.get_verdict(row.finding_id)
+        reports.append(
+            SASTFindingReport(
+                finding_id=uuid.UUID(row.finding_id),
+                rule_id=row.rule_id,
+                severity=cast(Literal["INFO", "WARNING", "ERROR"], row.severity),
+                path=row.path,
+                start_line=row.start_line,
+                end_line=row.end_line,
+                cwe=tuple(str(item) for item in json.loads(row.cwe)),
+                state=row.state,
+                triage_verdict=row.triage_verdict,
+                triage_reason=row.triage_reason,
+                verdict=(
+                    str(verdict_row["verdict"])
+                    if verdict_row is not None and verdict_row.get("verdict") is not None
+                    else None
+                ),
+                verdict_confidence=(
+                    cast(float, verdict_row["confidence"])
+                    if verdict_row is not None and verdict_row.get("confidence") is not None
+                    else None
+                ),
+                verdict_summary=(
+                    str(verdict_row["summary"])
+                    if verdict_row is not None and verdict_row.get("summary") is not None
+                    else None
+                ),
+                observer_warnings=observer_warnings_by_finding.get(row.finding_id, ()),
+            )
+        )
+    return tuple(reports)
+
+
 def default_provider_factory(provider_name: str) -> LLMProvider:
     """Construct the default ``LLMProvider`` for a CLI name.
 
@@ -291,6 +339,8 @@ class Orchestrator:
         pipeline_error: str | None = None
         final_result: ScanResult | None = None
         scan_id: str | None = None
+        store: object | None = None
+        observer_warnings_by_finding: dict[str, tuple[ObserverWarning, ...]] = {}
 
         resolved_target = str(Path(target_dir).expanduser().resolve())
 
@@ -392,19 +442,21 @@ class Orchestrator:
                                 compose_path, sandbox_token
                             )
                             for row in approved:
-                                self._detonate_finding(
-                                    row=row,
-                                    resolved_target=resolved_target,
-                                    compose_yaml=compose_yaml,
-                                    poc_gen=poc_gen,
-                                    provider_name=provider_name,
-                                    store=store,
-                                    network=network,
-                                    sandbox_token=sandbox_token,
-                                    timeout=timeout,
-                                    target_cid=target_cid,
-                                    observers=observers,  # type: ignore[arg-type]
-                                    synthesize=synthesize,
+                                observer_warnings_by_finding[row.finding_id] = (
+                                    self._detonate_finding(
+                                        row=row,
+                                        resolved_target=resolved_target,
+                                        compose_yaml=compose_yaml,
+                                        poc_gen=poc_gen,
+                                        provider_name=provider_name,
+                                        store=store,
+                                        network=network,
+                                        sandbox_token=sandbox_token,
+                                        timeout=timeout,
+                                        target_cid=target_cid,
+                                        observers=observers,  # type: ignore[arg-type]
+                                        synthesize=synthesize,
+                                    )
                                 )
                         finally:
                             self._docker.teardown(compose_path, sandbox_token)
@@ -437,6 +489,12 @@ class Orchestrator:
                 result_id=result_id,
                 pipeline_error=pipeline_error,
                 duration_seconds=duration,
+                scan_id=uuid.UUID(scan_id) if scan_id is not None else None,
+                findings=(
+                    _build_sast_finding_reports(store, scan_id, observer_warnings_by_finding)
+                    if scan_id is not None and store is not None
+                    else None
+                ),
             )
             self._reports.write(self._reports.build(final_result), output_path)
 
@@ -460,7 +518,7 @@ class Orchestrator:
             object
         ],  # Sequence[DetonationObserver]; typed as list[object] to avoid import
         synthesize: object,
-    ) -> None:
+    ) -> tuple[ObserverWarning, ...]:
         """Generate PoC, detonate, and record verdict for one approved finding."""
         from shieldclaw.exceptions import LLMConnectionError, LLMResponseError
         from shieldclaw.intelligence.poc_generator import PocGenerator
@@ -485,7 +543,7 @@ class Orchestrator:
                 f"PoC generation failed: {exc.message}",
             )
             store.update_finding_state(row.finding_id, "VERDICTED")
-            return
+            return ()
 
         store.record_poc(
             str(uuid.uuid4()),
@@ -516,7 +574,7 @@ class Orchestrator:
                 payload.target_dns,
                 services_list,
             )
-            return
+            return ()
 
         from shieldclaw.models import DetonationObserver
 
@@ -537,7 +595,7 @@ class Orchestrator:
                 row.finding_id, "INCONCLUSIVE", 0.10, f"Detonation error: {exc.message}"
             )
             store.update_finding_state(row.finding_id, "VERDICTED")
-            return
+            return ()
 
         for ev in outcome.evidence:
             store.record_evidence(
@@ -561,6 +619,7 @@ class Orchestrator:
         _LOG.info(
             "Finding %s: %s (confidence=%.2f)", row.finding_id, verdict.verdict, verdict.confidence
         )
+        return outcome.observer_warnings
 
     # ------------------------------------------------------------------
     # Legacy diff/detonation path (v0.1 behaviour, preserved unchanged)

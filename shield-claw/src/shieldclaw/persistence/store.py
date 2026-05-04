@@ -251,6 +251,38 @@ class ScanStore:
             for r in rows
         ]
 
+    def list_findings(self, scan_id: str) -> list[FindingRow]:
+        """Return all persisted findings for a scan ordered by finding_id."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT finding_id, scan_id, rule_id, severity, path, start_line, end_line,
+                       cwe, metavars_json, raw_extra_json, triage_verdict, triage_reason, state
+                FROM findings
+                WHERE scan_id = ?
+                ORDER BY finding_id
+                """,
+                (scan_id,),
+            ).fetchall()
+        return [
+            FindingRow(
+                finding_id=r["finding_id"],
+                scan_id=r["scan_id"],
+                rule_id=r["rule_id"],
+                severity=r["severity"],
+                path=r["path"],
+                start_line=r["start_line"],
+                end_line=r["end_line"],
+                cwe=r["cwe"],
+                metavars_json=r["metavars_json"],
+                raw_extra_json=r["raw_extra_json"],
+                triage_verdict=r["triage_verdict"],
+                triage_reason=r["triage_reason"],
+                state=r["state"],
+            )
+            for r in rows
+        ]
+
     def update_finding_state(self, finding_id: str, state: str) -> None:
         """Transition a finding to a new state.
 

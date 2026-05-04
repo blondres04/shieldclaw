@@ -35,6 +35,7 @@ from shieldclaw.models import (
     DetonationOutcome,
     ExploitPayload,
     ObserverEvidence,
+    ObserverWarning,
 )
 
 _LOG = logging.getLogger(__name__)
@@ -347,11 +348,19 @@ class DockerOrchestrator:
             )
             self._force_remove_container(container_name)
             exit_code = 124
-            evidence = tuple(
-                obs.after_detonate(bs, exit_code, "", "", target_container_id)
-                for obs, bs in zip(observers, before_states, strict=True)
+            evidence, observer_warnings = self._collect_observer_results(
+                observers=observers,
+                before_states=before_states,
+                exit_code=exit_code,
+                stdout_text="",
+                stderr_text="",
+                target_container_id=target_container_id,
             )
-            return DetonationOutcome(exit_code=exit_code, evidence=evidence)
+            return DetonationOutcome(
+                exit_code=exit_code,
+                evidence=evidence,
+                observer_warnings=observer_warnings,
+            )
         except FileNotFoundError as exc:
             raise DetonationError("docker executable not found on PATH.") from exc
         except OSError as exc:
@@ -376,17 +385,48 @@ class DockerOrchestrator:
         exit_code = int(completed.returncode)
 
         # Call after_detonate for all observers.
+        evidence, observer_warnings = self._collect_observer_results(
+            observers=observers,
+            before_states=before_states,
+            exit_code=exit_code,
+            stdout_text=stdout_text,
+            stderr_text=stderr_text,
+            target_container_id=target_container_id,
+        )
+        return DetonationOutcome(
+            exit_code=exit_code,
+            evidence=evidence,
+            observer_warnings=observer_warnings,
+        )
+
+    @staticmethod
+    def _collect_observer_results(
+        *,
+        observers: Sequence[DetonationObserver],
+        before_states: Sequence[object],
+        exit_code: int,
+        stdout_text: str,
+        stderr_text: str,
+        target_container_id: str | None,
+    ) -> tuple[tuple[ObserverEvidence, ...], tuple[ObserverWarning, ...]]:
+        """Run ``after_detonate`` hooks and collect evidence plus non-fatal warnings."""
         evidence_list: list[ObserverEvidence] = []
-        for obs, bs in zip(observers, before_states, strict=True):
+        warning_list: list[ObserverWarning] = []
+        for obs, before_state in zip(observers, before_states, strict=True):
             try:
-                ev = obs.after_detonate(
-                    bs, exit_code, stdout_text, stderr_text, target_container_id
+                evidence_list.append(
+                    obs.after_detonate(
+                        before_state,
+                        exit_code,
+                        stdout_text,
+                        stderr_text,
+                        target_container_id,
+                    )
                 )
-                evidence_list.append(ev)
             except Exception as exc:  # noqa: BLE001
                 _LOG.warning("Observer %s failed: %s", obs.name, exc)
-
-        return DetonationOutcome(exit_code=exit_code, evidence=tuple(evidence_list))
+                warning_list.append(ObserverWarning(observer_name=obs.name, message=str(exc)))
+        return tuple(evidence_list), tuple(warning_list)
 
     def teardown(self, compose_path: str, result_id: str) -> None:
         """Tear down compose volumes and remove labeled containers best-effort.
