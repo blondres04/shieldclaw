@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,6 +19,12 @@ from shieldclaw.models import DetonationObserver, ObserverEvidence
 _LOG = logging.getLogger(__name__)
 _DOCKER_TIMEOUT = 15.0
 _MAX_LOG_LINES = 100
+_GENERIC_ERROR_PATTERNS = ("error", "exception", "traceback", "500")
+_CWE_ERROR_PATTERNS: dict[str, tuple[str, ...]] = {
+    "CWE-22": ("enoent", "403", "filenotfounderror", "permission denied"),
+    "CWE-78": ("sh:", "command not found", "uid=", "gid="),
+    "CWE-89": ("syntax error", "ora-", "mysql", "psycopg"),
+}
 
 
 class TargetLogObserver(DetonationObserver):
@@ -25,6 +32,16 @@ class TargetLogObserver(DetonationObserver):
 
     name = "target_logs"
     tier = 2
+
+    def __init__(self, cwe: str | None = None) -> None:
+        self._cwe = cwe.strip().upper() if isinstance(cwe, str) and cwe.strip() else None
+
+    def _error_patterns(self) -> Iterable[str]:
+        if self._cwe is not None:
+            patterns = _CWE_ERROR_PATTERNS.get(self._cwe)
+            if patterns is not None:
+                return patterns
+        return _GENERIC_ERROR_PATTERNS
 
     def before_detonate(self, target_container_id: str | None, network_name: str) -> str:
         """Record UTC timestamp as the high-water mark.
@@ -75,10 +92,9 @@ class TargetLogObserver(DetonationObserver):
 
         # Heuristic: look for HTTP 200 responses and error keywords.
         log_text = "\n".join(log_lines)
+        normalized_log_text = log_text.lower()
         has_200 = " 200 " in log_text or '"status": 200' in log_text
-        has_error = any(
-            kw in log_text.lower() for kw in ("error", "exception", "traceback", "sqlalchemy")
-        )
+        has_error = any(pattern in normalized_log_text for pattern in self._error_patterns())
 
         summary = (
             f"captured {len(log_lines)} log lines since detonation"

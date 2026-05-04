@@ -327,9 +327,6 @@ class Orchestrator:
         from shieldclaw.approval.gate import get_current_user, is_auto_approve_enabled
         from shieldclaw.ingest.semgrep import parse_semgrep_json
         from shieldclaw.intelligence.poc_generator import PocGenerator
-        from shieldclaw.observer.docker_diff import DockerDiffObserver
-        from shieldclaw.observer.exit_code import ExitCodeObserver
-        from shieldclaw.observer.target_logs import TargetLogObserver
         from shieldclaw.persistence.store import ScanStore
         from shieldclaw.scoring.exploitability import ExploitabilityScorer
         from shieldclaw.triage.classifier import classify
@@ -436,7 +433,6 @@ class Orchestrator:
                     if compose_path:
                         sandbox_token = str(uuid.uuid4())
                         network = compose_default_network(sandbox_token)
-                        observers = [ExitCodeObserver(), DockerDiffObserver(), TargetLogObserver()]
                         try:
                             self._docker.start_sandbox(compose_path, sandbox_token)
                             target_cid = self._docker.get_target_container_id(
@@ -455,7 +451,6 @@ class Orchestrator:
                                         sandbox_token=sandbox_token,
                                         timeout=timeout,
                                         target_cid=target_cid,
-                                        observers=observers,  # type: ignore[arg-type]
                                         synthesize=synthesize,
                                     )
                                 )
@@ -515,14 +510,14 @@ class Orchestrator:
         sandbox_token: str,
         timeout: int,
         target_cid: str | None,
-        observers: list[
-            object
-        ],  # Sequence[DetonationObserver]; typed as list[object] to avoid import
         synthesize: object,
     ) -> tuple[ObserverWarning, ...]:
         """Generate PoC, detonate, and record verdict for one approved finding."""
         from shieldclaw.exceptions import LLMConnectionError, LLMRefusalError, LLMResponseError
         from shieldclaw.intelligence.poc_generator import PocGenerator
+        from shieldclaw.observer.docker_diff import DockerDiffObserver
+        from shieldclaw.observer.exit_code import ExitCodeObserver
+        from shieldclaw.observer.target_logs import TargetLogObserver
         from shieldclaw.persistence.store import FindingRow, ScanStore
         from shieldclaw.verdict.synthesizer import synthesize as _synthesize
 
@@ -532,6 +527,8 @@ class Orchestrator:
 
         finding = _finding_from_row(row)
         excerpt = _extract_source_lines(resolved_target, finding)
+        observer_cwe = finding.cwe[0] if finding.cwe else None
+        observers = [ExitCodeObserver(), DockerDiffObserver(), TargetLogObserver(observer_cwe)]
 
         try:
             payload = poc_gen.generate(finding, excerpt, compose_yaml)

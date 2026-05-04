@@ -115,3 +115,38 @@ class TestTargetLogObserver:
         ev = obs.after_detonate("2026-01-01T00:00:00", 0, "", "", "c1")
         payload = json.loads(ev.payload_json)
         assert payload["has_error"] is True
+
+    def test_detects_cwe89_database_errors(self, mocker: MockerFixture) -> None:
+        log_output = 'psycopg2.errors.SyntaxError: syntax error at or near "UNION"\n'
+        proc = subprocess.CompletedProcess(["docker", "logs"], 0, log_output, "")
+        mocker.patch("shieldclaw.observer.target_logs.subprocess.run", return_value=proc)
+
+        obs = TargetLogObserver(cwe="CWE-89")
+        ev = obs.after_detonate("2026-01-01T00:00:00", 0, "", "", "c1")
+        payload = json.loads(ev.payload_json)
+
+        assert payload["has_error"] is True
+        assert "server error detected" in ev.summary
+
+    def test_cwe89_ignores_generic_error_without_db_signal(self, mocker: MockerFixture) -> None:
+        log_output = "error: upstream request failed for unrelated reason\n"
+        proc = subprocess.CompletedProcess(["docker", "logs"], 0, log_output, "")
+        mocker.patch("shieldclaw.observer.target_logs.subprocess.run", return_value=proc)
+
+        obs = TargetLogObserver(cwe="CWE-89")
+        ev = obs.after_detonate("2026-01-01T00:00:00", 0, "", "", "c1")
+        payload = json.loads(ev.payload_json)
+
+        assert payload["has_error"] is False
+        assert "server error detected" not in ev.summary
+
+    def test_unknown_cwe_falls_back_to_generic_error_keywords(self, mocker: MockerFixture) -> None:
+        log_output = "Exception: generic application failure\n"
+        proc = subprocess.CompletedProcess(["docker", "logs"], 0, log_output, "")
+        mocker.patch("shieldclaw.observer.target_logs.subprocess.run", return_value=proc)
+
+        obs = TargetLogObserver(cwe="CWE-999")
+        ev = obs.after_detonate("2026-01-01T00:00:00", 0, "", "", "c1")
+        payload = json.loads(ev.payload_json)
+
+        assert payload["has_error"] is True
