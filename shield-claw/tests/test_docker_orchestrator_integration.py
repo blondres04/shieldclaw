@@ -105,12 +105,12 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
             execution_command="python -",
             language="python",
         )
-        exit_code = orchestrator.detonate(
+        outcome = orchestrator.detonate(
             payload,
             network_name=network,
             result_id=result_id,
             timeout=60,
         )
-        assert exit_code == 0
+        assert outcome.exit_code == 0
     finally:
         orchestrator.teardown(str(integration_compose), result_id)
