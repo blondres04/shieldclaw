@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import platform
 import subprocess
 import time
 import uuid
@@ -80,6 +81,18 @@ _DETONATE_IMAGE_DEFAULT = "ghcr.io/blondres04/shieldclaw-attacker:0.1"
 def _detonate_image() -> str:
     """Return the attacker image tag, consulting ``SHIELDCLAW_ATTACKER_IMAGE``."""
     return os.environ.get("SHIELDCLAW_ATTACKER_IMAGE", _DETONATE_IMAGE_DEFAULT)
+
+
+def _security_opts_for_attacker() -> list[str]:
+    """Return security options for the attacker container.
+
+    Linux daemons accept ``seccomp=default`` explicitly. Docker Desktop on
+    Windows treats that token as a profile path, so we fall back to the engine
+    default there and only assert that we never run ``unconfined``.
+    """
+    if platform.system().lower() == "windows":
+        return []
+    return ["--security-opt", "seccomp=default"]
 
 
 def _compose_start_timeout() -> float:
@@ -306,6 +319,7 @@ class DockerOrchestrator:
             "--read-only",
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=32m",
+            *_security_opts_for_attacker(),
             f"--network={network_name}",
             f"--label=shieldclaw.run={result_id}",
             "-e",

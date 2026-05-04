@@ -158,6 +158,56 @@ def test_detonate_timeout_returns_124(mocker: MockerFixture) -> None:
     kill_mock.assert_called_once()
 
 
+def test_detonate_applies_default_seccomp_profile(mocker: MockerFixture) -> None:
+    """The attacker container must run under Docker's default seccomp profile."""
+    mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.platform.system", return_value="Linux")
+    completed = subprocess.CompletedProcess(["docker", "run"], 0, "", "")
+    run_mock = mocker.patch(
+        "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
+        return_value=completed,
+    )
+    payload = ExploitPayload(
+        payload_id=uuid.uuid4(),
+        raw_code="import sys\nsys.exit(0)\n",
+        target_dns="web",
+        execution_command="python -",
+        language="python",
+    )
+
+    outcome = DockerOrchestrator().detonate(payload, "net", "rid", timeout=5)
+
+    assert outcome.exit_code == 0
+    cmd = run_mock.call_args[0][0]
+    assert "--security-opt" in cmd
+    assert "seccomp=default" in cmd
+    assert "seccomp=unconfined" not in cmd
+
+
+def test_detonate_never_uses_unconfined_on_windows(mocker: MockerFixture) -> None:
+    """Windows hosts should rely on the engine default instead of forcing unconfined."""
+    mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.platform.system", return_value="Windows")
+    completed = subprocess.CompletedProcess(["docker", "run"], 0, "", "")
+    run_mock = mocker.patch(
+        "shieldclaw.sandbox.docker_orchestrator.subprocess.run",
+        return_value=completed,
+    )
+    payload = ExploitPayload(
+        payload_id=uuid.uuid4(),
+        raw_code="import sys\nsys.exit(0)\n",
+        target_dns="web",
+        execution_command="python -",
+        language="python",
+    )
+
+    outcome = DockerOrchestrator().detonate(payload, "net", "rid", timeout=5)
+
+    assert outcome.exit_code == 0
+    cmd = run_mock.call_args[0][0]
+    assert "seccomp=unconfined" not in cmd
+
+
 def test_probe_attacker_image_raises_when_missing(mocker: MockerFixture) -> None:
     """``_probe_attacker_image`` must raise ``SandboxStartError`` when image absent."""
     proc = subprocess.CompletedProcess(["docker", "image", "inspect"], 1, "", "No such image")
