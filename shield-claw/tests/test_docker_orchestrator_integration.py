@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -43,6 +44,28 @@ def _materialize_internal_only_stack(tmp_path: Path) -> Path:
     return tmp_path / "docker-compose.yml"
 
 
+def _build_attacker_image(tag: str) -> bool:
+    """Build the attacker image used by real detonation integration tests."""
+    dockerfile = _REPO_ROOT / "shield-claw" / "docker" / "attacker.Dockerfile"
+    if not dockerfile.is_file():
+        return False
+    result = subprocess.run(
+        [
+            "docker",
+            "build",
+            "-f",
+            str(dockerfile),
+            "-t",
+            tag,
+            str(_REPO_ROOT / "shield-claw"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300.0,
+    )
+    return result.returncode == 0
+
+
 @pytest.fixture
 def integration_compose(tmp_path: Path) -> Path:
     """Provide an isolated compose file that avoids host port collisions."""
@@ -70,6 +93,7 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
     result_id = str(uuid.uuid4())
     project = compose_project_name(result_id)
     compose_dir = integration_compose.parent
+    attacker_tag = f"shieldclaw-attacker:test-{uuid.uuid4().hex[:12]}"
 
     build = subprocess.run(
         [
@@ -88,12 +112,16 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
     )
     if build.returncode != 0:
         pytest.skip(f"docker compose build failed: {build.stderr}")
+    if not _build_attacker_image(attacker_tag):
+        pytest.skip("Failed to build attacker image")
 
     orchestrator = DockerOrchestrator(
         start_wait_seconds=resolve_compose_start_wait_seconds(120.0),
         start_poll_interval=2.0,
         post_up_grace_seconds=0.0,
     )
+    original_tag = os.environ.get("SHIELDCLAW_ATTACKER_IMAGE")
+    os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = attacker_tag
     orchestrator.start_sandbox(str(integration_compose), result_id)
     try:
         time.sleep(5.0)
@@ -113,4 +141,93 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
         )
         assert outcome.exit_code == 0
     finally:
+        if original_tag is None:
+            os.environ.pop("SHIELDCLAW_ATTACKER_IMAGE", None)
+        else:
+            os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = original_tag
+        orchestrator.teardown(str(integration_compose), result_id)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _COMPOSE_SRC.is_file(), reason="vulnerable-flask-app compose file missing")
+@pytest.mark.skipif(not _docker_available(), reason="Docker engine not available")
+def test_attacker_network_is_internal_and_blocks_egress(integration_compose: Path) -> None:
+    """The attacker must reach compose services but not external hosts."""
+    result_id = str(uuid.uuid4())
+    project = compose_project_name(result_id)
+    compose_dir = integration_compose.parent
+    attacker_tag = f"shieldclaw-attacker:test-{uuid.uuid4().hex[:12]}"
+
+    build = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(integration_compose),
+            "-p",
+            project,
+            "build",
+        ],
+        cwd=str(compose_dir),
+        capture_output=True,
+        text=True,
+        timeout=600.0,
+    )
+    if build.returncode != 0:
+        pytest.skip(f"docker compose build failed: {build.stderr}")
+    if not _build_attacker_image(attacker_tag):
+        pytest.skip("Failed to build attacker image")
+
+    orchestrator = DockerOrchestrator(
+        start_wait_seconds=resolve_compose_start_wait_seconds(120.0),
+        start_poll_interval=2.0,
+        post_up_grace_seconds=0.0,
+    )
+    original_tag = os.environ.get("SHIELDCLAW_ATTACKER_IMAGE")
+    os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = attacker_tag
+    orchestrator.start_sandbox(str(integration_compose), result_id)
+    try:
+        network = compose_default_network(result_id)
+        inspect = subprocess.run(
+            ["docker", "network", "inspect", "--format", "{{.Internal}}", network],
+            capture_output=True,
+            text=True,
+            timeout=30.0,
+        )
+        assert inspect.returncode == 0, inspect.stderr
+        assert inspect.stdout.strip() == "true"
+
+        payload = ExploitPayload(
+            payload_id=uuid.uuid4(),
+            raw_code=(
+                "import socket\n"
+                "import sys\n"
+                "import urllib.request\n"
+                "\n"
+                "response = urllib.request.urlopen('http://web:5000/user?id=1', timeout=5)\n"
+                "body = response.read().decode('utf-8')\n"
+                "assert 'Alice' in body, body\n"
+                "\n"
+                "try:\n"
+                "    socket.create_connection(('8.8.8.8', 53), timeout=2)\n"
+                "except OSError:\n"
+                "    sys.exit(0)\n"
+                "raise SystemExit('external egress unexpectedly succeeded')\n"
+            ),
+            target_dns="web",
+            execution_command="python -",
+            language="python",
+        )
+        outcome = orchestrator.detonate(
+            payload,
+            network_name=network,
+            result_id=result_id,
+            timeout=60,
+        )
+        assert outcome.exit_code == 0
+    finally:
+        if original_tag is None:
+            os.environ.pop("SHIELDCLAW_ATTACKER_IMAGE", None)
+        else:
+            os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = original_tag
         orchestrator.teardown(str(integration_compose), result_id)

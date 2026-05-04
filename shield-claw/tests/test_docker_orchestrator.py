@@ -125,6 +125,8 @@ def test_start_sandbox_invokes_compose_up(mocker: MockerFixture, tmp_path: Path)
     override = label_override_path(compose, result_id)
     assert override.is_file()
     assert "shieldclaw.run" in override.read_text(encoding="utf-8")
+    assert "networks:" in override.read_text(encoding="utf-8")
+    assert "internal: true" in override.read_text(encoding="utf-8")
 
 
 def test_start_sandbox_raises_when_compose_missing(tmp_path: Path) -> None:

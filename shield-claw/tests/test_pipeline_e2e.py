@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -125,6 +126,30 @@ def _build_compose_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _build_attacker_image(tag: str) -> bool:
+    """Build the attacker image used by end-to-end Docker tests."""
+    dockerfile = (
+        Path(__file__).resolve().parents[2] / "shield-claw" / "docker" / "attacker.Dockerfile"
+    )
+    if not dockerfile.is_file():
+        return False
+    result = subprocess.run(
+        [
+            "docker",
+            "build",
+            "-f",
+            str(dockerfile),
+            "-t",
+            tag,
+            str(Path(__file__).resolve().parents[2] / "shield-claw"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300.0,
+    )
+    return result.returncode == 0
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -138,6 +163,7 @@ def test_sqli_finding_gets_true_positive_verdict(tmp_path: Path) -> None:
     from shieldclaw.orchestrator import Orchestrator
 
     target_dir = _build_compose_dir(tmp_path)
+    attacker_tag = f"shieldclaw-attacker:test-{uuid.uuid4().hex[:12]}"
 
     # Build Docker images.
     build = subprocess.run(
@@ -155,11 +181,14 @@ def test_sqli_finding_gets_true_positive_verdict(tmp_path: Path) -> None:
     )
     if build.returncode != 0:
         pytest.skip(f"docker compose build failed: {build.stderr[:500]}")
+    if not _build_attacker_image(attacker_tag):
+        pytest.skip("Failed to build attacker image")
 
     provider = _MockProvider()
 
     with pytest.MonkeyPatch().context() as m:
         m.setenv("SHIELDCLAW_AUTO_APPROVE", "1")
+        m.setenv("SHIELDCLAW_ATTACKER_IMAGE", attacker_tag)
         orch = Orchestrator(provider_factory=lambda _: provider)
         result = orch.run(
             target_dir=str(target_dir),
@@ -209,6 +238,7 @@ def test_status_shows_terminal_states(tmp_path: Path) -> None:
     from shieldclaw.orchestrator import Orchestrator
 
     target_dir = _build_compose_dir(tmp_path)
+    attacker_tag = f"shieldclaw-attacker:test-{uuid.uuid4().hex[:12]}"
     build = subprocess.run(
         ["docker", "compose", "-f", str(target_dir / "docker-compose.yml"), "build"],
         cwd=str(target_dir),
@@ -218,9 +248,12 @@ def test_status_shows_terminal_states(tmp_path: Path) -> None:
     )
     if build.returncode != 0:
         pytest.skip("docker compose build failed")
+    if not _build_attacker_image(attacker_tag):
+        pytest.skip("Failed to build attacker image")
 
     with pytest.MonkeyPatch().context() as m:
         m.setenv("SHIELDCLAW_AUTO_APPROVE", "1")
+        m.setenv("SHIELDCLAW_ATTACKER_IMAGE", attacker_tag)
         orch = Orchestrator(provider_factory=lambda _: _MockProvider())
         orch.run(target_dir=str(target_dir), semgrep_output=str(_SEMGREP_FIXTURE))
 

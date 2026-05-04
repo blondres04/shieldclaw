@@ -14,6 +14,7 @@ untouched.  The test asserts this explicitly.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 import uuid
@@ -31,6 +32,8 @@ services:
   web:
     image: nginx:alpine
 """
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _docker_available() -> bool:
@@ -57,6 +60,28 @@ def _containers_for_run(result_id: str) -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
+def _build_attacker_image(tag: str) -> bool:
+    """Build the attacker image used by sandbox startup checks."""
+    dockerfile = _REPO_ROOT / "shield-claw" / "docker" / "attacker.Dockerfile"
+    if not dockerfile.is_file():
+        return False
+    result = subprocess.run(
+        [
+            "docker",
+            "build",
+            "-f",
+            str(dockerfile),
+            "-t",
+            tag,
+            str(_REPO_ROOT / "shield-claw"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300.0,
+    )
+    return result.returncode == 0
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(not _docker_available(), reason="Docker engine not available")
 def test_concurrent_runs_do_not_interfere(tmp_path: Path) -> None:
@@ -67,6 +92,9 @@ def test_concurrent_runs_do_not_interfere(tmp_path: Path) -> None:
     dir_b.mkdir()
     (dir_a / "docker-compose.yml").write_text(_MINIMAL_COMPOSE, encoding="utf-8")
     (dir_b / "docker-compose.yml").write_text(_MINIMAL_COMPOSE, encoding="utf-8")
+    attacker_tag = f"shieldclaw-attacker:test-{uuid.uuid4().hex[:12]}"
+    if not _build_attacker_image(attacker_tag):
+        pytest.skip("Failed to build attacker image")
 
     result_id_a = str(uuid.uuid4())
     result_id_b = str(uuid.uuid4())
@@ -89,6 +117,8 @@ def test_concurrent_runs_do_not_interfere(tmp_path: Path) -> None:
     a_sandbox_ready = threading.Event()
     b_cleanup_done = threading.Event()
     errors: list[Exception] = []
+    original_tag = os.environ.get("SHIELDCLAW_ATTACKER_IMAGE")
+    os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = attacker_tag
 
     def run_a() -> None:
         try:
@@ -143,6 +173,11 @@ def test_concurrent_runs_do_not_interfere(tmp_path: Path) -> None:
     thread_b.start()
     thread_a.join(timeout=join_budget)
     thread_b.join(timeout=join_budget)
+
+    if original_tag is None:
+        os.environ.pop("SHIELDCLAW_ATTACKER_IMAGE", None)
+    else:
+        os.environ["SHIELDCLAW_ATTACKER_IMAGE"] = original_tag
 
     if errors:
         raise errors[0]
