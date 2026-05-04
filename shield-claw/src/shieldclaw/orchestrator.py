@@ -260,6 +260,7 @@ class Orchestrator:
         provider_name: str = "ollama",
         timeout: int = 15,
         output_path: str | None = None,
+        output_format: str = "json",
         *,
         # keyword-only SAST pipeline extras
         semgrep_output: str | None = None,
@@ -284,7 +285,8 @@ class Orchestrator:
             diff_path: Unified diff patch; ``None`` uses ``git diff HEAD~1``.
             provider_name: LLM backend name.
             timeout: Detonation timeout in seconds.
-            output_path: JSON sink; ``None`` prints to stdout.
+            output_path: Report sink; ``None`` prints to stdout.
+            output_format: Serialization format for the final report.
             semgrep_output: Path to Semgrep --json report (SAST mode).
             resume_scan_id: Existing scan UUID to resume.
             interactive: Prompt for inline approval during the SAST pipeline.
@@ -303,6 +305,7 @@ class Orchestrator:
                 provider_name=provider_name,
                 timeout=timeout,
                 output_path=output_path,
+                output_format=output_format,
                 resume_scan_id=resume_scan_id,
                 interactive=interactive,
             )
@@ -312,6 +315,7 @@ class Orchestrator:
             provider_name=provider_name,
             timeout=timeout,
             output_path=output_path,
+            output_format=output_format,
         )
 
     # ------------------------------------------------------------------
@@ -326,6 +330,7 @@ class Orchestrator:
         provider_name: str,
         timeout: int,
         output_path: str | None,
+        output_format: str,
         resume_scan_id: str | None,
         interactive: bool,
     ) -> ScanResult:
@@ -551,7 +556,10 @@ class Orchestrator:
                     else None
                 ),
             )
-            self._reports.write(self._reports.build(final_result), output_path)
+            self._reports.write(
+                self._reports.build(final_result, output_format=output_format),
+                output_path,
+            )
 
         assert final_result is not None
         return final_result
@@ -700,6 +708,7 @@ class Orchestrator:
         provider_name: str,
         timeout: int,
         output_path: str | None,
+        output_format: str,
     ) -> ScanResult:
         """Execute the original v0.1 pipeline (context → exploit → detonate)."""
         result_id = uuid.uuid4()
@@ -770,6 +779,9 @@ class Orchestrator:
                 exploit_payload=payload,
                 container_state=None,
             )
-            self._reports.write(self._reports.build(final_result), output_path)
+            self._reports.write(
+                self._reports.build(final_result, output_format=output_format),
+                output_path,
+            )
         assert final_result is not None
         return final_result

@@ -25,6 +25,7 @@ def _run_namespace(**kwargs: object) -> argparse.Namespace:
         "provider": "ollama",
         "timeout": 15,
         "output": None,
+        "output_format": "json",
         "interactive": False,
     }
     defaults.update(kwargs)
@@ -72,6 +73,7 @@ def test_parser_run_defaults_timeout_to_15(tmp_path: Path) -> None:
     parser = _build_parser()
     args = parser.parse_args(["run", "--target", str(tmp_path)])
     assert args.timeout == 15
+    assert args.output_format == "json"
 
 
 def test_parser_run_accepts_interactive_flag(tmp_path: Path) -> None:
@@ -80,6 +82,14 @@ def test_parser_run_accepts_interactive_flag(tmp_path: Path) -> None:
     parser = _build_parser()
     args = parser.parse_args(["run", "--target", str(tmp_path), "--interactive"])
     assert args.interactive is True
+
+
+def test_parser_run_accepts_output_format_flag(tmp_path: Path) -> None:
+    """The ``run`` subparser should expose report format selection."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    parser = _build_parser()
+    args = parser.parse_args(["run", "--target", str(tmp_path), "--output-format", "sarif"])
+    assert args.output_format == "sarif"
 
 
 def test_validate_rejects_missing_target(tmp_path: Path) -> None:

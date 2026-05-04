@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-mock>=3.14"]
+dev = ["jsonschema>=4.26", "pytest>=8.0", "pytest-mock>=3.14"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

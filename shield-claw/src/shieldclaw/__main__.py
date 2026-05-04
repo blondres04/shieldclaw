@@ -31,6 +31,7 @@ from dotenv import load_dotenv
 from shieldclaw.orchestrator import Orchestrator
 
 _COMPOSE_NAMES: Final[tuple[str, ...]] = ("docker-compose.yml", "docker-compose.yaml")
+_OUTPUT_FORMATS: Final[tuple[str, ...]] = ("json", "sarif", "markdown")
 # ollama: local inference; openai: hosted via OPENAI_API_KEY.
 # Anthropic provider is not yet implemented; planned for v0.3.
 _ALLOWED_PROVIDERS: Final[frozenset[str]] = frozenset({"ollama", "openai"})
@@ -246,6 +247,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         default=None,
         help="Write JSON report to this path instead of stdout.",
+    )
+    run.add_argument(
+        "--output-format",
+        dest="output_format",
+        choices=_OUTPUT_FORMATS,
+        default="json",
+        help="Report format: json (default), sarif, or markdown.",
     )
     run.add_argument(
         "--interactive",
@@ -491,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
             provider_name=str(args.provider).lower(),
             timeout=int(args.timeout),
             output_path=args.output,
+            output_format=str(getattr(args, "output_format", "json")),
             semgrep_output=semgrep_output,
             resume_scan_id=resume_scan_id,
             interactive=bool(getattr(args, "interactive", False)),
