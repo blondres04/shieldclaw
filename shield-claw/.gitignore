@@ -62,3 +62,6 @@ Thumbs.db
 
 # Local environment
 .env
+
+# AFK automation (personal, not project code)
+once.sh
