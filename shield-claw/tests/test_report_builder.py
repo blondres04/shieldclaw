@@ -8,7 +8,14 @@ from pathlib import Path
 
 from pytest_mock import MockerFixture
 
-from shieldclaw.models import ContainerState, ContainerStatus, ExploitPayload, ScanResult
+from shieldclaw.models import (
+    ContainerState,
+    ContainerStatus,
+    ExploitPayload,
+    ObserverWarning,
+    SASTFindingReport,
+    ScanResult,
+)
 from shieldclaw.reporting.builder import ReportBuilder
 
 
@@ -102,3 +109,73 @@ def test_write_file_fallback_on_error(tmp_path: Path, mocker: MockerFixture, cap
     ReportBuilder().write(report, str(bad_path))
     log_mock.assert_called_once()
     assert json.loads(capsys.readouterr().out) == json.loads(report)
+
+
+def test_build_sast_report_includes_observer_warnings_per_finding() -> None:
+    """SAST findings should serialize failed observer warnings in report output."""
+    result = ScanResult(
+        result_id=uuid.uuid4(),
+        scan_id=uuid.UUID("aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee"),
+        findings=(
+            SASTFindingReport(
+                finding_id=uuid.UUID("11111111-2222-4333-8444-555555555555"),
+                rule_id="python.flask.sqli",
+                severity="ERROR",
+                path="app.py",
+                start_line=42,
+                end_line=42,
+                cwe=("CWE-89",),
+                state="VERDICTED",
+                triage_verdict="DYNAMICALLY_VERIFIABLE",
+                triage_reason="SQL injection is dynamically verifiable",
+                verdict="TRUE_POSITIVE",
+                verdict_confidence=0.9,
+                verdict_summary="Exit code and logs confirm exploitability.",
+                observer_warnings=(
+                    ObserverWarning(
+                        observer_name="target_logs",
+                        message="log stream unavailable",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    data = json.loads(ReportBuilder().build(result))
+
+    assert data["findings"][0]["observer_warnings"] == [
+        {
+            "message": "log stream unavailable",
+            "observer_name": "target_logs",
+        }
+    ]
+
+
+def test_build_sast_report_serializes_empty_observer_warnings() -> None:
+    """Successful observer runs should serialize an empty warning list."""
+    result = ScanResult(
+        result_id=uuid.uuid4(),
+        scan_id=uuid.UUID("aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee"),
+        findings=(
+            SASTFindingReport(
+                finding_id=uuid.UUID("11111111-2222-4333-8444-555555555555"),
+                rule_id="python.flask.sqli",
+                severity="ERROR",
+                path="app.py",
+                start_line=42,
+                end_line=42,
+                cwe=("CWE-89",),
+                state="VERDICTED",
+                triage_verdict="DYNAMICALLY_VERIFIABLE",
+                triage_reason="SQL injection is dynamically verifiable",
+                verdict="TRUE_POSITIVE",
+                verdict_confidence=0.9,
+                verdict_summary="Exit code confirms exploitability.",
+                observer_warnings=(),
+            ),
+        ),
+    )
+
+    data = json.loads(ReportBuilder().build(result))
+
+    assert data["findings"][0]["observer_warnings"] == []

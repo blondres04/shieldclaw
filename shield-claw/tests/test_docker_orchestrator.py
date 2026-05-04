@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import subprocess
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pytest_mock import MockerFixture
 
 from shieldclaw.exceptions import DetonationError, DockerNotAvailableError, SandboxStartError
-from shieldclaw.models import ExploitPayload
+from shieldclaw.models import DetonationObserver, ExploitPayload, ObserverEvidence
 from shieldclaw.sandbox.docker_orchestrator import (
     _START_WAIT_SECONDS,
     DockerOrchestrator,
@@ -20,6 +22,48 @@ from shieldclaw.sandbox.docker_orchestrator import (
     label_override_path,
     resolve_compose_start_wait_seconds,
 )
+
+
+class _RecordingObserver(DetonationObserver):
+    name = "recording"
+    tier = 2
+
+    def before_detonate(self, target_container_id: str | None, network_name: str) -> str:
+        return f"{target_container_id}:{network_name}"
+
+    def after_detonate(
+        self,
+        before_state: Any,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        target_container_id: str | None,
+    ) -> ObserverEvidence:
+        return ObserverEvidence(
+            observer_name=self.name,
+            tier=self.tier,
+            captured_at=datetime(2026, 1, 1, tzinfo=UTC),
+            summary=f"exit={exit_code} state={before_state}",
+            payload_json='{"ok": true}',
+        )
+
+
+class _FailingObserver(DetonationObserver):
+    name = "target_logs"
+    tier = 2
+
+    def before_detonate(self, target_container_id: str | None, network_name: str) -> None:
+        return None
+
+    def after_detonate(
+        self,
+        before_state: Any,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
+        target_container_id: str | None,
+    ) -> ObserverEvidence:
+        raise RuntimeError("log stream unavailable")
 
 
 def test_compose_project_name_is_stable() -> None:
@@ -323,6 +367,65 @@ def test_detonate_raises_on_docker_client_error(mocker: MockerFixture) -> None:
     orch = DockerOrchestrator()
     with pytest.raises(DetonationError):
         orch.detonate(payload, "net", "rid", timeout=5)
+
+
+def test_detonate_records_observer_warning_when_after_detonate_fails(
+    mocker: MockerFixture,
+) -> None:
+    """Tier-2 observer failures should be surfaced as warning entries."""
+    mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
+    proc = subprocess.CompletedProcess(["docker", "run"], returncode=0, stdout="ok\n", stderr="")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    payload = ExploitPayload(
+        payload_id=uuid.uuid4(),
+        raw_code="print(1)",
+        target_dns="web",
+        execution_command="python -",
+        language="python",
+    )
+
+    outcome = DockerOrchestrator().detonate(
+        payload,
+        "net",
+        "rid",
+        timeout=5,
+        observers=[_RecordingObserver(), _FailingObserver()],
+        target_container_id="target-123",
+    )
+
+    assert len(outcome.evidence) == 1
+    assert outcome.evidence[0].observer_name == "recording"
+    assert len(outcome.observer_warnings) == 1
+    assert outcome.observer_warnings[0].observer_name == "target_logs"
+    assert outcome.observer_warnings[0].message == "log stream unavailable"
+
+
+def test_detonate_leaves_observer_warnings_empty_when_all_observers_succeed(
+    mocker: MockerFixture,
+) -> None:
+    """Successful observers should not emit warning entries."""
+    mocker.patch.object(DockerOrchestrator, "_ensure_docker", autospec=True)
+    proc = subprocess.CompletedProcess(["docker", "run"], returncode=0, stdout="ok\n", stderr="")
+    mocker.patch("shieldclaw.sandbox.docker_orchestrator.subprocess.run", return_value=proc)
+    payload = ExploitPayload(
+        payload_id=uuid.uuid4(),
+        raw_code="print(1)",
+        target_dns="web",
+        execution_command="python -",
+        language="python",
+    )
+
+    outcome = DockerOrchestrator().detonate(
+        payload,
+        "net",
+        "rid",
+        timeout=5,
+        observers=[_RecordingObserver()],
+        target_container_id="target-123",
+    )
+
+    assert len(outcome.evidence) == 1
+    assert outcome.observer_warnings == ()
 
 
 def test_resolve_compose_start_wait_seconds_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
