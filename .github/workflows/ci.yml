@@ -152,7 +152,9 @@ jobs:
 
       - name: pull base images for integration tests
         if: steps.docker_check.outputs.available == 'true'
-        run: docker pull nginx:alpine postgres:15-alpine
+        run: |
+          docker pull nginx:alpine
+          docker pull postgres:15-alpine
 
       - name: pytest integration
         if: steps.docker_check.outputs.available == 'true'
