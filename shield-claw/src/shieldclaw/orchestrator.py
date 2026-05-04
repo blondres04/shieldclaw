@@ -81,6 +81,43 @@ def _read_compose_yaml(target_dir: str) -> str:
     return ""
 
 
+def _extract_compose_service_names(compose_yaml: str) -> set[str]:
+    """Best-effort extraction of direct ``services:`` child names from compose YAML."""
+    services_indent: int | None = None
+    service_name_indent: int | None = None
+    service_names: set[str] = set()
+
+    for line in compose_yaml.splitlines():
+        uncommented = line.split("#", 1)[0].rstrip()
+        if not uncommented.strip():
+            continue
+
+        indent = len(uncommented) - len(uncommented.lstrip(" "))
+        stripped = uncommented.strip()
+
+        if services_indent is None:
+            if stripped == "services:":
+                services_indent = indent
+            continue
+
+        if indent <= services_indent:
+            break
+        if not stripped.endswith(":") or stripped.startswith("-"):
+            continue
+
+        if service_name_indent is None:
+            service_name_indent = indent
+
+        if indent != service_name_indent:
+            continue
+
+        name = stripped[:-1].strip().strip("'\"")
+        if name:
+            service_names.add(name)
+
+    return service_names
+
+
 def _extract_source_lines(target_dir: str, finding: Finding) -> str:
     """Return an annotated excerpt of the source file surrounding the finding.
 
@@ -445,6 +482,26 @@ class Orchestrator:
             payload.language,
             provider_name,
         )
+
+        compose_services = _extract_compose_service_names(compose_yaml)
+        if compose_services and payload.target_dns not in compose_services:
+            services_list = ", ".join(sorted(compose_services))
+            store.record_verdict(
+                row.finding_id,
+                "INCONCLUSIVE",
+                0.10,
+                "PoC target_dns "
+                f"{payload.target_dns!r} does not match compose services "
+                f"({services_list}); detonation skipped.",
+            )
+            store.update_finding_state(row.finding_id, "VERDICTED")
+            _LOG.warning(
+                "Skipping detonation for %s: target_dns %r not in compose services %s",
+                row.finding_id,
+                payload.target_dns,
+                services_list,
+            )
+            return
 
         from shieldclaw.models import DetonationObserver
 

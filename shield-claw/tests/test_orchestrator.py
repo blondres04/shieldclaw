@@ -13,7 +13,11 @@ from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import AggregationError, LLMRefusalError
 from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.models import DetonationOutcome, ExploitPayload, ScanContext, ScanResult
-from shieldclaw.orchestrator import Orchestrator, compose_default_network
+from shieldclaw.orchestrator import (
+    Orchestrator,
+    _extract_compose_service_names,
+    compose_default_network,
+)
 from shieldclaw.reporting.builder import ReportBuilder
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator
 
@@ -160,3 +164,18 @@ def test_unknown_provider_propagates(repo_dir: Path) -> None:
         orch.run(str(repo_dir), None, "unknown-vendor", 5, None)
     docker.teardown.assert_called_once()
     reports.write.assert_called_once()
+
+
+def test_extract_compose_service_names_reads_direct_children() -> None:
+    """Only direct children of ``services:`` should be treated as compose service names."""
+    compose_yaml = (
+        "services:\n"
+        "  web:\n"
+        "    image: nginx:alpine\n"
+        "  db:\n"
+        "    image: postgres:16\n"
+        "networks:\n"
+        "  default: {}\n"
+    )
+
+    assert _extract_compose_service_names(compose_yaml) == {"web", "db"}

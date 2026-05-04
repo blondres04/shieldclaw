@@ -27,6 +27,7 @@ from shieldclaw.intelligence.base import LLMProvider
 from shieldclaw.models import ExploitPayload, ScanContext
 from shieldclaw.orchestrator import Orchestrator
 from shieldclaw.persistence.store import ScanStore
+from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator
 
 _5DV_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5dv.json"
 
@@ -36,6 +37,15 @@ _SCORE_JSON = json.dumps(
         "attack_surface": "NETWORK",
         "prerequisites": [],
         "reasoning": "Direct user input to SQL query.",
+    }
+)
+
+_INVALID_TARGET_POC_JSON = json.dumps(
+    {
+        "language": "python",
+        "target_dns": "admin",
+        "raw_code": "import sys\nsys.exit(0)\n",
+        "execution_command": "python -",
     }
 )
 
@@ -69,6 +79,22 @@ class NormalProvider(LLMProvider):
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         self.complete_calls += 1
         return _SCORE_JSON
+
+
+class InvalidTargetDnsProvider(LLMProvider):
+    """Provider that scores normally but emits a PoC for a missing compose service."""
+
+    def __init__(self) -> None:
+        self.complete_calls = 0
+
+    def generate_exploit(self, context: ScanContext) -> ExploitPayload:
+        raise LLMConnectionError("InvalidTargetDnsProvider is for SAST PoC generation only")
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        self.complete_calls += 1
+        if '"score"' in system_prompt or "exploitability" in system_prompt.lower():
+            return _SCORE_JSON
+        return _INVALID_TARGET_POC_JSON
 
 
 @pytest.fixture
@@ -225,3 +251,64 @@ def test_out_of_scope_findings_are_not_scored(tmp_path: Path) -> None:
     assert provider.complete_calls == 0, (
         f"OUT_OF_SCOPE finding triggered {provider.complete_calls} complete() call(s)"
     )
+
+
+def test_invalid_target_dns_records_inconclusive_and_skips_detonation(repo_dir: Path) -> None:
+    """A PoC targeting a missing compose service must be marked INCONCLUSIVE without detonation."""
+    from unittest.mock import MagicMock
+
+    from shieldclaw.orchestrator import Orchestrator
+    from shieldclaw.persistence.store import ScanStore
+
+    semgrep_fixture = repo_dir / "semgrep-invalid-target.json"
+    semgrep_fixture.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "app.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (repo_dir / "app.py").write_text("query = request.args['id']\n", encoding="utf-8")
+
+    provider = InvalidTargetDnsProvider()
+    docker = MagicMock(spec=DockerOrchestrator)
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setenv("SHIELDCLAW_AUTO_APPROVE", "1")
+        orch = Orchestrator(provider_factory=lambda _: provider, docker_orchestrator=docker)
+        result = orch.run(target_dir=str(repo_dir), semgrep_output=str(semgrep_fixture))
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_not_called()
+
+    store = ScanStore(str(repo_dir))
+    latest = store.get_latest_scan(str(repo_dir))
+    assert latest is not None
+
+    counts = store.count_findings_by_state(latest.scan_id)
+    assert counts.get("VERDICTED", 0) == 1
+
+    from shieldclaw.ingest.semgrep import parse_semgrep_json
+
+    finding = parse_semgrep_json(semgrep_fixture)[0]
+    verdict = store.get_verdict(str(finding.finding_id))
+    assert verdict is not None
+    assert verdict["verdict"] == "INCONCLUSIVE"
+    assert "target_dns" in str(verdict["summary"])
+    assert "admin" in str(verdict["summary"])
+    assert "web" in str(verdict["summary"])
