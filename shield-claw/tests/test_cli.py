@@ -62,6 +62,14 @@ def test_parser_run_accepts_expected_flags(tmp_path: Path) -> None:
     assert args.output.endswith("out.json")
 
 
+def test_parser_run_defaults_timeout_to_15(tmp_path: Path) -> None:
+    """The CLI default timeout should remain 15 seconds when omitted."""
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    parser = _build_parser()
+    args = parser.parse_args(["run", "--target", str(tmp_path)])
+    assert args.timeout == 15
+
+
 def test_validate_rejects_missing_target(tmp_path: Path) -> None:
     """Non-existent targets must fail validation."""
     missing = tmp_path / "nope"
