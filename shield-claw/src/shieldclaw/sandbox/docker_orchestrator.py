@@ -29,7 +29,7 @@ _LOG = logging.getLogger(__name__)
 _DOCKER_INFO_TIMEOUT = 15.0
 _COMPOSE_UP_TIMEOUT = 120.0
 _START_POLL_INTERVAL = 2.0
-_START_WAIT_SECONDS = 60.0
+_START_WAIT_SECONDS = 120.0
 
 # Default tag for the pre-built attacker image.  Override via
 # SHIELDCLAW_ATTACKER_IMAGE to pin a different version or registry.

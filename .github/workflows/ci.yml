@@ -150,6 +150,10 @@ jobs:
           SHIELDCLAW_ATTACKER_IMAGE=shieldclaw-attacker:ci \
             bash shield-claw/scripts/build_attacker_image.sh
 
+      - name: pull base images for integration tests
+        if: steps.docker_check.outputs.available == 'true'
+        run: docker pull nginx:alpine postgres:15-alpine
+
       - name: pytest integration
         if: steps.docker_check.outputs.available == 'true'
         env:
