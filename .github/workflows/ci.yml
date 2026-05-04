@@ -119,6 +119,11 @@ jobs:
       github.base_ref == 'main' ||
       github.base_ref == 'pivot/sast-verifier'
 
+    env:
+      # GitHub-hosted runners often need more than local dev for image pulls + healthchecks.
+      SHIELDCLAW_COMPOSE_START_WAIT_SECONDS: "300"
+      SHIELDCLAW_COMPOSE_UP_TIMEOUT_SECONDS: "300"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -150,6 +155,12 @@ jobs:
           SHIELDCLAW_ATTACKER_IMAGE=shieldclaw-attacker:ci \
             bash shield-claw/scripts/build_attacker_image.sh
 
+      - name: pull base images for integration tests
+        if: steps.docker_check.outputs.available == 'true'
+        run: |
+          docker pull nginx:alpine
+          docker pull postgres:15-alpine
+
       - name: pytest integration
         if: steps.docker_check.outputs.available == 'true'
         env:
@@ -160,4 +171,4 @@ jobs:
           -m integration
           --no-cov
           -v
-          --timeout=300
+          --timeout=1200

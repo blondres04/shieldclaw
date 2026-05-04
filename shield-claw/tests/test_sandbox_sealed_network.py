@@ -126,9 +126,10 @@ def test_pypi_unreachable_with_sealed_network() -> None:
         timeout=30.0,
     )
     assert result.returncode == 0, f"Script failed unexpectedly:\n{result.stdout}\n{result.stderr}"
-    # Confirm the image works without internet — either PyPI was unreachable
-    # (sealed) or it was reachable but requests still worked from the image.
-    assert "requests" in result.stdout or "WARNING" in result.stdout
+    # Confirm the script reached one of the two expected branches:
+    # sealed network → "PyPI unreachable (expected): ..."
+    # open network   → "WARNING: PyPI was reachable ..."
+    assert "unreachable" in result.stdout.lower() or "WARNING" in result.stdout
 
 
 @pytest.mark.integration

@@ -1,8 +1,20 @@
-"""Manage compose-backed targets and locked-down attacker containers for detonation.
-
-Compose services receive ``shieldclaw.run`` labels via a generated override file so
-engines that lack ``docker update --label-add`` (common on Windows Desktop) stay
-compatible while still meeting labeling requirements.
+"""
+File: shield-claw/src/shieldclaw/sandbox/docker_orchestrator.py
+Purpose: Manage compose-backed targets and locked-down attacker containers for detonation.
+Public API:
+- DockerOrchestrator(...) -> DockerOrchestrator
+- compose_project_name(result_id: str) -> str
+- label_override_path(compose_file: Path, result_id: str) -> Path
+- compose_default_network(result_id: str) -> str
+- compose_up_timeout_seconds() -> float
+- resolve_compose_start_wait_seconds(local_default: float) -> float
+Depends On:
+- shieldclaw.exceptions (DetonationError, DockerNotAvailableError, SandboxStartError)
+- shieldclaw.models (DetonationObserver, DetonationOutcome, ExploitPayload, ObserverEvidence)
+Used By:
+- shield-claw/src/shieldclaw/orchestrator.py
+Use Cases:
+- UC-DETONATE: Start compose targets, run exploits in isolated containers, teardown stacks.
 """
 
 from __future__ import annotations
@@ -27,9 +39,38 @@ from shieldclaw.models import (
 _LOG = logging.getLogger(__name__)
 
 _DOCKER_INFO_TIMEOUT = 15.0
-_COMPOSE_UP_TIMEOUT = 120.0
+_COMPOSE_UP_TIMEOUT_DEFAULT = 120.0
 _START_POLL_INTERVAL = 2.0
 _START_WAIT_SECONDS = 120.0
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        _LOG.warning("Ignoring invalid float for %s=%r; using default %s", name, raw, default)
+        return default
+
+
+def compose_up_timeout_seconds() -> float:
+    """Return timeout for ``docker compose up`` / ``down`` subprocess calls.
+
+    Override with ``SHIELDCLAW_COMPOSE_UP_TIMEOUT_SECONDS`` (e.g. slow CI runners).
+    """
+    return _env_float("SHIELDCLAW_COMPOSE_UP_TIMEOUT_SECONDS", _COMPOSE_UP_TIMEOUT_DEFAULT)
+
+
+def resolve_compose_start_wait_seconds(local_default: float) -> float:
+    """Return readiness polling budget after compose ``up``.
+
+    Reads ``SHIELDCLAW_COMPOSE_START_TIMEOUT`` (same variable as ``_compose_start_timeout``).
+    When unset, falls back to ``local_default``.
+    """
+    return _env_float("SHIELDCLAW_COMPOSE_START_TIMEOUT", local_default)
+
 
 # Default tag for the pre-built attacker image.  Override via
 # SHIELDCLAW_ATTACKER_IMAGE to pin a different version or registry.
@@ -108,7 +149,7 @@ class DockerOrchestrator:
                 to ``120`` seconds when the variable is unset.
             start_poll_interval: Sleep interval between readiness probes.
             post_up_grace_seconds: Extra sleep after healthcheck gating completes.
-                Reduced from 10 s to 2 s now that readiness is healthcheck-gated.
+                Reduced from 10 s to 2 s now that readiness is healthcheck-gating.
         """
         self._start_wait = (
             _compose_start_timeout() if start_wait_seconds is None else start_wait_seconds
@@ -141,7 +182,7 @@ class DockerOrchestrator:
         self._run_required(
             up_cmd,
             cwd=cwd,
-            timeout=_COMPOSE_UP_TIMEOUT,
+            timeout=compose_up_timeout_seconds(),
             error_cls=SandboxStartError,
             error_prefix="docker compose up failed",
         )
@@ -346,7 +387,7 @@ class DockerOrchestrator:
         override = label_override_path(compose_file, result_id)
         down_cmd = self._compose_command_prefix(compose_file, override, project) + ["down", "-v"]
         try:
-            self._run_optional(down_cmd, cwd=cwd, timeout=_COMPOSE_UP_TIMEOUT)
+            self._run_optional(down_cmd, cwd=cwd, timeout=compose_up_timeout_seconds())
         except Exception as exc:  # noqa: BLE001 - best-effort teardown
             _LOG.warning("docker compose down failed: %s", exc)
 

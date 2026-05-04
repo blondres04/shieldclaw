@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import textwrap
 
@@ -131,6 +132,10 @@ def test_git_diff_head_minus_one(tmp_path) -> None:
     root.mkdir()
 
     def run_git(args: list[str]) -> None:
+        # Strip GIT_* env vars so a parent git worktree's GIT_DIR does not
+        # bleed into the subprocess and cause "this operation must be run in
+        # a work tree" failures on Windows.
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         subprocess.run(
             args,
             cwd=root,
@@ -138,6 +143,7 @@ def test_git_diff_head_minus_one(tmp_path) -> None:
             capture_output=True,
             text=True,
             timeout=30.0,
+            env=clean_env,
         )
 
     run_git(["git", "init", "-b", "main"])

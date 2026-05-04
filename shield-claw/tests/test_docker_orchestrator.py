@@ -16,7 +16,9 @@ from shieldclaw.sandbox.docker_orchestrator import (
     DockerOrchestrator,
     compose_default_network,
     compose_project_name,
+    compose_up_timeout_seconds,
     label_override_path,
+    resolve_compose_start_wait_seconds,
 )
 
 
@@ -269,3 +271,20 @@ def test_detonate_raises_on_docker_client_error(mocker: MockerFixture) -> None:
     orch = DockerOrchestrator()
     with pytest.raises(DetonationError):
         orch.detonate(payload, "net", "rid", timeout=5)
+
+
+def test_resolve_compose_start_wait_seconds_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", "240")
+    assert resolve_compose_start_wait_seconds(120.0) == 240.0
+
+
+def test_resolve_compose_start_wait_seconds_invalid_env_uses_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", "bogus")
+    assert resolve_compose_start_wait_seconds(85.5) == 85.5
+
+
+def test_compose_up_timeout_seconds_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_UP_TIMEOUT_SECONDS", "999")
+    assert compose_up_timeout_seconds() == 999.0
