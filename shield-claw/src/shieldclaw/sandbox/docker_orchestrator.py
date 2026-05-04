@@ -565,6 +565,13 @@ class DockerOrchestrator:
             lines.append(f"  {service}:")
             lines.append("    labels:")
             lines.append(f'      shieldclaw.run: "{quoted}"')
+        lines.extend(
+            [
+                "networks:",
+                "  default:",
+                "    internal: true",
+            ]
+        )
         override = label_override_path(compose_file, result_id)
         try:
             override.write_text("\n".join(lines) + "\n", encoding="utf-8")
