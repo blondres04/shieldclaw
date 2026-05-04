@@ -343,6 +343,16 @@ class Orchestrator:
                     )
                 store.update_finding_state(row.finding_id, "SCORED")
 
+            interrupted = store.get_pending_findings(scan_id, "POC_GENERATED")
+            for row in interrupted:
+                store.record_verdict(
+                    row.finding_id,
+                    "INCONCLUSIVE",
+                    0.10,
+                    "Detonation interrupted - marked INCONCLUSIVE on resume",
+                )
+                store.update_finding_state(row.finding_id, "VERDICTED")
+
             # Auto-approve gate → PoC generate → detonate → verdict
             # Only runs when SHIELDCLAW_AUTO_APPROVE=1 is set.
             # Without it the pipeline stops here (findings stay SCORED).
@@ -486,6 +496,7 @@ class Orchestrator:
             payload.language,
             provider_name,
         )
+        store.update_finding_state(row.finding_id, "POC_GENERATED")
 
         compose_services = _extract_compose_service_names(compose_yaml)
         if compose_services and payload.target_dns not in compose_services:

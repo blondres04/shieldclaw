@@ -382,3 +382,85 @@ def test_sast_run_threads_configured_timeout_to_detonate(repo_dir: Path) -> None
     assert result.pipeline_error is None
     docker.detonate.assert_called_once()
     assert docker.detonate.call_args.kwargs["timeout"] == 7
+
+
+def test_resume_marks_poc_generated_findings_inconclusive_without_redetonating(
+    repo_dir: Path,
+) -> None:
+    """Interrupted detonations should be verdicted INCONCLUSIVE on resume."""
+    from unittest.mock import MagicMock
+
+    from shieldclaw.ingest.semgrep import parse_semgrep_json
+    from shieldclaw.orchestrator import Orchestrator
+
+    semgrep_fixture = repo_dir / "semgrep-poc-generated.json"
+    semgrep_fixture.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "app.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (repo_dir / "app.py").write_text("query = request.args['id']\n", encoding="utf-8")
+
+    store = ScanStore(str(repo_dir))
+    scan_id = "11111111-2222-4333-8444-555555555555"
+    store.create_scan(scan_id, str(repo_dir), str(semgrep_fixture))
+    findings = parse_semgrep_json(semgrep_fixture)
+    finding = findings[0]
+    store.record_findings(scan_id, findings)
+    store.set_triage(str(finding.finding_id), "DYNAMICALLY_VERIFIABLE", "seeded for resume")
+    store.record_approval(
+        str(finding.finding_id),
+        "APPROVED",
+        "tester",
+        note="seeded for resume",
+        auto=True,
+    )
+    store.record_poc(
+        "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
+        str(finding.finding_id),
+        "import sys\nsys.exit(0)\n",
+        "web",
+        "python -",
+        "python",
+        "test-model",
+    )
+    store.update_finding_state(str(finding.finding_id), "POC_GENERATED")
+    store.update_scan_state(scan_id, "DETONATING")
+
+    docker = MagicMock(spec=DockerOrchestrator)
+    orch = Orchestrator(provider_factory=lambda _: NormalProvider(), docker_orchestrator=docker)
+
+    result = orch.run(
+        target_dir=str(repo_dir),
+        semgrep_output=str(semgrep_fixture),
+        resume_scan_id=scan_id,
+    )
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_not_called()
+
+    verdict = store.get_verdict(str(finding.finding_id))
+    assert verdict is not None
+    assert verdict["verdict"] == "INCONCLUSIVE"
+    assert "Detonation interrupted" in str(verdict["summary"])
+
+    counts = store.count_findings_by_state(scan_id)
+    assert counts.get("VERDICTED", 0) == 1
+    assert counts.get("POC_GENERATED", 0) == 0
