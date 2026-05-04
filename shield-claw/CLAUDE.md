@@ -29,11 +29,11 @@ python -m shieldclaw run --target <dir> --semgrep-output <semgrep.json> --timeou
 ## Invariants (never violate these)
 
 - INCONCLUSIVE always means INCONCLUSIVE — LLM score never tips a verdict
-- Multi-CWE conflict → STATIC_ONLY wins (conservative)
+- Multi-CWE conflict → STATIC_ONLY wins (conservative) — not yet enforced, tracked in #42
 - Exploitability score is stored in SQLite but does NOT influence verdict
 - Interrupted detonations → INCONCLUSIVE on resume — never re-detonate
 - 1:1 finding-to-exploit cardinality — one exploit per finding
-- Attacker containers must have: `internal: true` network, seccomp, read-only FS, non-root UID
+- Attacker containers must have: read-only FS, non-root UID. Planned: `internal: true` network (#38), seccomp (#39)
 
 ## Issue workflow
 

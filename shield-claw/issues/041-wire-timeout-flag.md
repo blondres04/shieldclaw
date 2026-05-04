@@ -11,7 +11,7 @@ The `--timeout` CLI flag is parsed in `__main__.py` but the SAST pipeline hardco
 ## Acceptance criteria
 
 - [ ] `--timeout N` CLI argument controls the detonation timeout (not hardcoded to 30)
-- [ ] Default timeout remains 30 seconds when `--timeout` is not specified
+- [ ] Default timeout remains 15 seconds when `--timeout` is not specified (matches CLI default)
 - [ ] Unit test: orchestrator passes the configured timeout value to `detonate()`
 
 ## Relevant modules
