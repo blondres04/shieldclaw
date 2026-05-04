@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -135,12 +136,16 @@ class ContextAggregator:
         """
         command = ["git", "-C", str(root), "diff", "HEAD~1"]
         _LOG.debug("Running command: %s", command)
+        # Strip GIT_* env vars so the subprocess always reads the repository
+        # at ``root``, not a GIT_DIR inherited from an outer git worktree.
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         try:
             completed = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
                 timeout=self._git_timeout,
+                env=clean_env,
             )
         except FileNotFoundError as exc:
             raise AggregationError("git executable not found on PATH.") from exc
