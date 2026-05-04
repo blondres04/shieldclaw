@@ -61,6 +61,7 @@ def _docker_available() -> bool:
         return False
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not _COMPOSE_SRC.is_file(), reason="vulnerable-flask-app compose file missing")
 @pytest.mark.skipif(not _docker_available(), reason="Docker engine not available")
 def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
@@ -88,7 +89,6 @@ def test_full_stack_detonate_and_teardown(integration_compose: Path) -> None:
         pytest.skip(f"docker compose build failed: {build.stderr}")
 
     orchestrator = DockerOrchestrator(
-        start_wait_seconds=120.0,
         start_poll_interval=2.0,
         post_up_grace_seconds=0.0,
     )

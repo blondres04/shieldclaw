@@ -12,6 +12,7 @@ from pytest_mock import MockerFixture
 from shieldclaw.exceptions import DetonationError, DockerNotAvailableError, SandboxStartError
 from shieldclaw.models import ExploitPayload
 from shieldclaw.sandbox.docker_orchestrator import (
+    _START_WAIT_SECONDS,
     DockerOrchestrator,
     compose_default_network,
     compose_project_name,
@@ -29,6 +30,40 @@ def test_compose_default_network_matches_project() -> None:
     """Default network names should follow Compose conventions."""
     rid = "abc"
     assert compose_default_network(rid) == f"{compose_project_name(rid)}_default"
+
+
+def test_orchestrator_default_start_wait_uses_module_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no env var is set, ``start_wait_seconds`` defaults to ``_START_WAIT_SECONDS``."""
+    monkeypatch.delenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", raising=False)
+    orch = DockerOrchestrator()
+    assert orch._start_wait == _START_WAIT_SECONDS
+
+
+def test_orchestrator_start_wait_reads_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``SHIELDCLAW_COMPOSE_START_TIMEOUT`` overrides the default when ``start_wait_seconds`` is unset."""
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", "240")
+    orch = DockerOrchestrator()
+    assert orch._start_wait == 240.0
+
+
+def test_orchestrator_start_wait_explicit_overrides_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit ``start_wait_seconds`` argument takes precedence over the env var."""
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", "999")
+    orch = DockerOrchestrator(start_wait_seconds=30.0)
+    assert orch._start_wait == 30.0
+
+
+def test_orchestrator_start_wait_invalid_env_var_uses_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid ``SHIELDCLAW_COMPOSE_START_TIMEOUT`` value falls back to the module default."""
+    monkeypatch.setenv("SHIELDCLAW_COMPOSE_START_TIMEOUT", "not-a-number")
+    orch = DockerOrchestrator()
+    assert orch._start_wait == _START_WAIT_SECONDS
 
 
 def test_ensure_docker_raises_when_docker_missing(mocker: MockerFixture) -> None:
