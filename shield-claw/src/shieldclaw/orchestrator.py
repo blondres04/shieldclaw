@@ -248,6 +248,7 @@ class Orchestrator:
                 target_dir=resolved_target,
                 semgrep_output=semgrep_output,
                 provider_name=provider_name,
+                timeout=timeout,
                 output_path=output_path,
                 resume_scan_id=resume_scan_id,
             )
@@ -269,6 +270,7 @@ class Orchestrator:
         target_dir: str,
         semgrep_output: str,
         provider_name: str,
+        timeout: int,
         output_path: str | None,
         resume_scan_id: str | None,
     ) -> ScanResult:
@@ -389,6 +391,7 @@ class Orchestrator:
                                     store=store,
                                     network=network,
                                     sandbox_token=sandbox_token,
+                                    timeout=timeout,
                                     target_cid=target_cid,
                                     observers=observers,  # type: ignore[arg-type]
                                     synthesize=synthesize,
@@ -441,6 +444,7 @@ class Orchestrator:
         store: object,
         network: str,
         sandbox_token: str,
+        timeout: int,
         target_cid: str | None,
         observers: list[
             object
@@ -512,7 +516,7 @@ class Orchestrator:
                 payload,
                 network_name=network,
                 result_id=sandbox_token,
-                timeout=30,
+                timeout=timeout,
                 observers=obs_typed,
                 target_container_id=target_cid,
             )

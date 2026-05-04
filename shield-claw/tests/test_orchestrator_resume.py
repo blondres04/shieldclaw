@@ -24,7 +24,7 @@ import pytest
 
 from shieldclaw.exceptions import LLMConnectionError
 from shieldclaw.intelligence.base import LLMProvider
-from shieldclaw.models import ExploitPayload, ScanContext
+from shieldclaw.models import DetonationOutcome, ExploitPayload, ScanContext
 from shieldclaw.orchestrator import Orchestrator
 from shieldclaw.persistence.store import ScanStore
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator
@@ -44,6 +44,15 @@ _INVALID_TARGET_POC_JSON = json.dumps(
     {
         "language": "python",
         "target_dns": "admin",
+        "raw_code": "import sys\nsys.exit(0)\n",
+        "execution_command": "python -",
+    }
+)
+
+_VALID_TARGET_POC_JSON = json.dumps(
+    {
+        "language": "python",
+        "target_dns": "web",
         "raw_code": "import sys\nsys.exit(0)\n",
         "execution_command": "python -",
     }
@@ -95,6 +104,22 @@ class InvalidTargetDnsProvider(LLMProvider):
         if '"score"' in system_prompt or "exploitability" in system_prompt.lower():
             return _SCORE_JSON
         return _INVALID_TARGET_POC_JSON
+
+
+class ValidTargetDnsProvider(LLMProvider):
+    """Provider that scores normally and emits a PoC for a valid compose service."""
+
+    def __init__(self) -> None:
+        self.complete_calls = 0
+
+    def generate_exploit(self, context: ScanContext) -> ExploitPayload:
+        raise LLMConnectionError("ValidTargetDnsProvider is for SAST PoC generation only")
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        self.complete_calls += 1
+        if '"score"' in system_prompt or "exploitability" in system_prompt.lower():
+            return _SCORE_JSON
+        return _VALID_TARGET_POC_JSON
 
 
 @pytest.fixture
@@ -312,3 +337,48 @@ def test_invalid_target_dns_records_inconclusive_and_skips_detonation(repo_dir: 
     assert "target_dns" in str(verdict["summary"])
     assert "admin" in str(verdict["summary"])
     assert "web" in str(verdict["summary"])
+
+
+def test_sast_run_threads_configured_timeout_to_detonate(repo_dir: Path) -> None:
+    """The SAST pipeline must pass the CLI-configured timeout through to detonate()."""
+    from unittest.mock import MagicMock
+
+    from shieldclaw.orchestrator import Orchestrator
+
+    semgrep_fixture = repo_dir / "semgrep-timeout.json"
+    semgrep_fixture.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "check_id": "python.flask.security.sqli",
+                        "path": "app.py",
+                        "start": {"line": 1, "col": 1},
+                        "end": {"line": 1, "col": 12},
+                        "extra": {
+                            "severity": "ERROR",
+                            "message": "Possible SQL injection",
+                            "metadata": {"cwe": ["CWE-89"]},
+                            "metavars": {},
+                        },
+                    }
+                ],
+                "errors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (repo_dir / "app.py").write_text("query = request.args['id']\n", encoding="utf-8")
+
+    provider = ValidTargetDnsProvider()
+    docker = MagicMock(spec=DockerOrchestrator)
+    docker.detonate.return_value = DetonationOutcome(exit_code=0, evidence=())
+
+    with pytest.MonkeyPatch().context() as m:
+        m.setenv("SHIELDCLAW_AUTO_APPROVE", "1")
+        orch = Orchestrator(provider_factory=lambda _: provider, docker_orchestrator=docker)
+        result = orch.run(target_dir=str(repo_dir), semgrep_output=str(semgrep_fixture), timeout=7)
+
+    assert result.pipeline_error is None
+    docker.detonate.assert_called_once()
+    assert docker.detonate.call_args.kwargs["timeout"] == 7
