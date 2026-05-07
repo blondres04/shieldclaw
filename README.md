@@ -60,6 +60,7 @@ shield-claw/
 |   |-- triage/          CWE-based classifier
 |   |-- scoring/         LLM exploitability scoring
 |   |-- approval/        Human approval gate logic
+|   |-- context/         Repo and source excerpt aggregation helpers
 |   |-- observer/        Exit-code and corroboration observers
 |   |-- verdict/         Deterministic verdict synthesis
 |   |-- persistence/     SQLite scan and finding state
@@ -77,6 +78,17 @@ shield-claw/
 Strict module isolation is enforced by `shield-claw/tests/test_architecture.py`.
 
 ## Quickstart
+
+Commands below use POSIX line continuations and inline environment-variable syntax.
+On PowerShell, set environment variables separately (for example,
+`$env:SHIELDCLAW_AUTO_APPROVE = "1"`) and keep the same repo-relative paths.
+
+Before you start, make sure:
+
+- Docker Desktop / Docker Engine is running
+- An LLM backend is reachable: either Ollama is running with your chosen model pulled, or `OPENAI_API_KEY` is set for `--provider openai`
+- `semgrep` is installed in the active environment
+- On Windows PowerShell, if `semgrep` raises a `charmap` / Unicode error, set `$env:PYTHONUTF8 = "1"` before running it
 
 ```bash
 # 1. Clone
@@ -97,40 +109,65 @@ pip install -r shield-claw/requirements.txt \
             -r shield-claw/requirements-dev.txt \
             -e shield-claw/
 
-# 5. Install pre-commit hooks
+# 5. Install Semgrep for the quickstart scan
+pip install semgrep
+
+# 6. Install pre-commit hooks
 pre-commit install
 
-# 6. Build the pre-baked attacker image
-cd shield-claw
-bash scripts/build_attacker_image.sh
-cd ..
+# 7. Build the pre-baked attacker image
+docker build \
+  -f shield-claw/docker/attacker.Dockerfile \
+  -t ghcr.io/blondres04/shieldclaw-attacker:0.1 \
+  shield-claw/
 
-# 7. Run Semgrep against the bundled vulnerable Flask lab
+# 8. Run Semgrep against the bundled vulnerable Flask lab
 semgrep --config=auto \
         --json \
-        -o /tmp/findings.json \
+        -o ./findings.json \
         test_repos/vulnerable-flask-app/
 
-# 8. Run ShieldClaw end to end
+# 9. Run ShieldClaw end to end
 SHIELDCLAW_AUTO_APPROVE=1 python -m shieldclaw run \
     --target test_repos/vulnerable-flask-app \
-    --semgrep-output /tmp/findings.json \
+    --semgrep-output ./findings.json \
     --provider ollama \
     --timeout 60
 
-# 9. Optional: emit a Markdown or SARIF artifact
+# 10. Optional variant: write Markdown or SARIF instead of JSON stdout
 SHIELDCLAW_AUTO_APPROVE=1 python -m shieldclaw run \
     --target test_repos/vulnerable-flask-app \
-    --semgrep-output /tmp/findings.json \
+    --semgrep-output ./findings.json \
     --provider ollama \
     --output-format markdown \
-    --output /tmp/shieldclaw-report.md
+    --output ./shieldclaw-report.md
 ```
 
 Expected terminal outcome:
 
-```text
-TRUE_POSITIVE (confidence=0.95) python.flask.security.injection.tainted-sql-string
+```json
+{
+  "pipeline_error": null,
+  "scan_id": "f8897ef8-9178-43cf-ad89-c760a7112165",
+  "findings": [
+    {
+      "rule_id": "python.lang.security.audit.formatted-sql-query.formatted-sql-query",
+      "triage_verdict": "DYNAMICALLY_VERIFIABLE",
+      "state": "VERDICTED"
+    }
+  ]
+}
+```
+
+Exact rule IDs, finding counts, and final verdicts vary with the Semgrep version,
+rule pack, and LLM model/provider you use. A healthy quickstart run exits `0`,
+returns a non-null `scan_id`, and emits a JSON report with populated `findings`.
+
+The `run` command writes a JSON report to stdout by default and logs triage /
+detonation progress to stderr. To inspect persisted scan state afterward:
+
+```bash
+python -m shieldclaw status --target test_repos/vulnerable-flask-app
 ```
 
 ## Configuration
@@ -152,7 +189,7 @@ TRUE_POSITIVE (confidence=0.95) python.flask.security.injection.tainted-sql-stri
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--target PATH` | required | Repository root containing `docker-compose.yml` |
+| `--target PATH` | required | Repository root containing `docker-compose.yml` or `docker-compose.yaml` |
 | `--diff PATH` | none | Optional unified diff for the legacy diff-driven workflow |
 | `--semgrep-output PATH` | none | Semgrep `--json` report for the SAST pipeline |
 | `--provider` | `ollama` | LLM backend: `ollama` or `openai` |
@@ -161,6 +198,13 @@ TRUE_POSITIVE (confidence=0.95) python.flask.security.injection.tainted-sql-stri
 | `--output PATH` | stdout | Write the report to a file |
 | `--output-format` | `json` | Report format: `json`, `sarif`, or `markdown` |
 | `--interactive` | `false` | Prompt inline for each approval decision |
+
+### `shieldclaw status` flags
+
+| Flag | Description |
+| --- | --- |
+| `--target PATH` | Filter scans by target directory (defaults to the current working directory) |
+| `--scan-id SCAN_ID` | Show one specific persisted scan |
 
 ### `shieldclaw approve` flags
 
@@ -171,6 +215,7 @@ TRUE_POSITIVE (confidence=0.95) python.flask.security.injection.tainted-sql-stri
 | `SCAN_ID --auto` | Auto-approve all pending findings |
 | `--reject` | Reject instead of approve |
 | `--note TEXT` | Persist an audit note with the decision |
+| `--target PATH` | Directory containing the `.shieldclaw/scans.db` store (defaults to the current working directory) |
 
 ## What `main` adds beyond `v0.2.0`
 
@@ -184,7 +229,7 @@ TRUE_POSITIVE (confidence=0.95) python.flask.security.injection.tainted-sql-stri
 
 ## Architectural invariants
 
-- Module isolation: only `orchestrator.py` and `__main__.py` cross feature-package boundaries.
+- Module isolation: cross-feature imports are blocked except for the CLI / orchestrator integration boundary and the documented `scoring -> intelligence` allowlist enforced by `shield-claw/tests/test_architecture.py`.
 - Immutable data flow: shared values are frozen dataclasses.
 - Subprocess discipline: the sandbox layer uses `subprocess.run`, not `Popen`.
 - Guaranteed teardown: detonation cleanup runs even on failures and interrupted flows.
