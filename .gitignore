@@ -54,6 +54,7 @@ CONTEXT.md
 harness-engineering.md
 
 # AI agent working files — never reach the remote repo
+.codex/
 ai/
 .ai/
 .aider*
