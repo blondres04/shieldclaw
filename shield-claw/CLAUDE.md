@@ -1,19 +1,26 @@
 # ShieldClaw
 
-SAST vulnerability verification pipeline. Takes Semgrep findings, generates exploit code, detonates in isolated containers, produces verdicts.
+SQLi-focused SAST validation pipeline. The default MVP path takes Semgrep
+`CWE-89` findings, scores them, requires approval, generates one PoC, detonates
+inside a constrained Docker attacker container, and produces evidence-backed
+JSON/Markdown reports.
 
 ## Pipeline
 
-```
-Semgrep JSON → INGEST → TRIAGE → SCORE → APPROVE → POC_GEN → DETONATE → VERDICT
+```text
+Semgrep JSON -> INGEST -> TRIAGE -> SCORE -> AWAITING_APPROVAL
+  -> APPROVE or REJECT -> POC_GEN -> DETONATE -> VERDICT
 ```
 
-All inter-stage state persists to SQLite. Each finding has a lifecycle state. Current states written by the orchestrator: `INGESTED → TRIAGED → SCORED → APPROVED → VERDICTED` (terminal). `REJECTED` is terminal when approval is denied. Note: `POC_GENERATED` and `DETONATED` are not yet written as intermediate states — this is a known gap.
+All inter-stage state persists to SQLite. Current SQLi MVP finding states:
+`INGESTED`, `TRIAGED`, `DEFERRED`, `AWAITING_APPROVAL`, `APPROVED`, `REJECTED`,
+`POC_GENERATED`, `VERDICTED`, and `REFUSED`. Legacy `SCORED` rows remain
+approval-compatible for resume.
 
 ## Commands
 
 ```bash
-# Tests (primary feedback loop — run after every change)
+# Tests (primary feedback loop)
 python -m pytest tests/ -x -q
 
 # Type check
@@ -26,42 +33,45 @@ python -m ruff check src/
 python -m shieldclaw run --target <dir> --semgrep-output <semgrep.json> --timeout <seconds>
 ```
 
-## Invariants (never violate these)
+## Invariants
 
-- INCONCLUSIVE always means INCONCLUSIVE — LLM score never tips a verdict
-- Multi-CWE conflict → STATIC_ONLY wins (conservative) — not yet enforced, tracked in #42
-- Exploitability score is stored in SQLite but does NOT influence verdict
-- Interrupted detonations → INCONCLUSIVE on resume — never re-detonate
-- 1:1 finding-to-exploit cardinality — one exploit per finding
-- Attacker containers must have: read-only FS, non-root UID. Planned: `internal: true` network (#38), seccomp (#39)
+- Default MVP validation is `CWE-89` SQL injection only.
+- Non-`CWE-89` findings remain visible but are not scored, approved, PoC-generated, or detonated by default.
+- `INCONCLUSIVE` always means `INCONCLUSIVE`; LLM score never tips a verdict.
+- Multi-CWE conflict resolves conservatively to `STATIC_ONLY`.
+- Exploitability score is stored in SQLite but does not influence verdict.
+- Interrupted detonations become `INCONCLUSIVE` on resume; never silently re-detonate.
+- One approved finding generates at most one PoC.
+- Attacker containers must use constrained runtime settings and internal networking.
 
-## Issue workflow
+## Issue Workflow
 
-- Open issues: `issues/*.md`
-- Completed issues: `issues/done/`
-- Priority: Tier 1 (Security) → Tier 2 (Correctness) → Tier 3 (Capability)
-- Each issue contains its own acceptance criteria and constraints
-- Implementation method: TDD (write failing test first, then implement, then refactor)
+- Open implementation work lives in GitHub issues.
+- Completed local issue notes live in `issues/done/` when present.
+- Priority: security, correctness, then capability.
+- Implementation method: write or update focused tests, implement, then refactor.
 
-## Git workflow
+## Git Workflow
 
-- Never commit directly to `main`
-- Create a branch per issue: `git checkout -b issue-NNN-short-name`
-- Commit format: `fix(issue-NNN): short description` or `feat(issue-NNN): short description`
-- After implementation + all tests pass → branch is ready for review
-- Merge to main only after review passes
+- Never commit directly to `main`.
+- Create a branch per issue or issue cluster.
+- Keep commits focused and do not stage `.codex/`.
+- Commit format: `feat(scope): short description`, `fix(scope): short description`, `test(scope): short description`, `docs(scope): short description`, or `chore: short description`.
 
-## Architecture reference
+## Architecture Reference
 
-- PRD: `docs/prd-sast-pipeline-v02.md` (read when you need implementation decisions or module context)
-- Deep modules: `orchestrator.py`, `sandbox/docker_orchestrator.py`, `persistence/store.py`
-- Legacy diff path: being retired — do not invest in it
+- PRD: `docs/prd-sast-pipeline-v02.md`.
+- Manual SQLi MVP gate: `docs/sqli-mvp-validation-checklist.md`.
+- Deep modules: `orchestrator.py`, `sandbox/docker_orchestrator.py`, `persistence/store.py`.
+- Legacy diff path is preserved but not the MVP investment path.
 
-## Out of scope (do not implement)
+## Out of Scope
 
-- LLM score influencing verdict
-- Multi-variant exploit generation per finding
-- Custom seccomp profiles (Docker default is sufficient)
-- Legacy diff path improvements
-- ScoredFinding dataclass in memory
-- Agentic source context enrichment (requires multi-turn tool-use refactor)
+- Broad vulnerability-class support beyond `CWE-89`.
+- `CWE-78` or `CWE-434` MVP implementation.
+- SARIF release gating.
+- Web UI.
+- Patch generation or patch verification.
+- LLM score influencing verdict.
+- Multi-variant exploit generation per finding.
+- Legacy diff path improvements.

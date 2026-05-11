@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "shieldclaw"
 version = "0.1.0"
-description = "Evidence-backed SAST verification engine with LLM-guided PoCs, human approval, and hardened Docker detonation"
+description = "Evidence-backed SQL injection validation for Semgrep findings against owned Docker Compose apps"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "ShieldClaw Contributors" }]

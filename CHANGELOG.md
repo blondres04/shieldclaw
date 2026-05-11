@@ -10,6 +10,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- SQLi MVP validation gate and manual QA checklist for the bundled vulnerable Flask app.
+- JSON and Markdown outcome metadata for SQLi MVP reports, including `REJECTED` no-detonation cases.
+- Formal `AWAITING_APPROVAL`, `REJECTED`, and `DEFERRED` finding states for the SAST flow.
 - Inline `--interactive` approval mode for per-finding review during `shieldclaw run`.
 - Pluggable report output formats: `json`, `sarif`, and `markdown`.
 - CWE-specific corroboration patterns for `TargetLogObserver`.
@@ -17,6 +20,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Default MVP validation support is now limited to Semgrep `CWE-89` SQL injection.
+- Non-`CWE-89` findings remain visible but are not scored, approved, PoC-generated, or detonated by default.
+- SARIF remains available as a secondary export, but JSON and Markdown are the SQLi MVP acceptance outputs.
 - `--timeout` is now threaded through to live detonation calls.
 - Conservative multi-CWE conflict resolution now warns on unmapped CWEs.
 - Interrupted detonations resume as `INCONCLUSIVE` instead of silently continuing.

@@ -6,29 +6,34 @@ Accepted — 2026-04-28
 
 ## Context
 
-Once a finding is scored as `DYNAMICALLY_VERIFIABLE` and the LLM assigns a
-high exploitability score, ShieldClaw must decide: should it proceed to PoC
-generation and live detonation automatically, or pause for human review?
+Once a supported finding is scored and the LLM assigns an exploitability score,
+ShieldClaw must decide: should it proceed to PoC generation and live detonation
+automatically, or pause for human review?
 
 The stakes are non-trivial. Detonation sends HTTP requests crafted to exploit
 a live application. Even with a sandbox, a mistaken approval against the
 wrong target could:
 - Produce noisy access logs.
 - Trigger WAF/IDS alerts.
-- In the SSRF case, reach internal services the operator did not intend to probe.
+- In future non-SQLi cases, reach services the operator did not intend to probe.
 
 ## Decision
 
 HITL approval is **mandatory by default**, per-finding (not per-scan).
 
 The default workflow:
-1. Pipeline runs to `SCORED` state and halts.
+1. Pipeline scores default-supported `CWE-89` SQLi findings and moves them to
+   `AWAITING_APPROVAL`.
 2. Operator reviews each finding via `shieldclaw approve <scan_id> <finding_id>`.
 3. Operator resumes via `shieldclaw run --resume <scan_id>`.
 
 Automation override: set `SHIELDCLAW_AUTO_APPROVE=1` to auto-approve all
-scored findings in one pipeline run. This is explicitly logged as `WARN` and
-is designed for CI/CD contexts where the operator accepts the risk.
+approval-ready findings in one pipeline run. This is explicitly logged as
+`WARN` and is designed for CI/CD contexts where the operator accepts the risk.
+
+Legacy `SCORED` rows remain approval-compatible for resumed pre-MVP local
+databases, but new scans should rest at `AWAITING_APPROVAL` instead of exposing
+`SCORED` as the operator-facing pending state.
 
 Approval is **per-finding** rather than per-scan because:
 - A scan may contain both high-confidence exploitable findings and low-confidence

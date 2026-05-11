@@ -2,12 +2,19 @@
 
 > Serialization of shared design alignment reached 2026-05-02.
 > This is not a proposal — these decisions are made.
+>
+> 2026-05-11 scope note: the current MVP validation claim is narrowed to
+> Semgrep `CWE-89` SQL injection only. Other CWEs may remain visible through
+> triage/reporting or operator experiments, but they are not default
+> MVP-supported validation targets.
 
 ---
 
 ## 1. Problem Statement
 
-ShieldClaw is a vulnerability verification pipeline that takes static analysis findings (Semgrep) and proves or disproves them by generating and detonating exploit code in isolated containers.
+ShieldClaw is a vulnerability verification pipeline that takes static analysis
+findings (Semgrep) and, for the current MVP, validates `CWE-89` SQL injection
+findings by generating and detonating approved PoC code in isolated containers.
 
 The v0.2 SAST pipeline is architecturally complete — all 7 stages exist and connect — but has confirmed gaps in isolation, resumability, observability, and configurability that must be addressed before the pipeline can produce trustworthy results at scale.
 
@@ -65,7 +72,12 @@ Semgrep JSON ──> INGEST ──> TRIAGE ──> SCORE ──> APPROVE ──>
                   (1)        (2)       (3)       (4)         (5)         (6)          (7)
 ```
 
-All inter-stage data is persisted to SQLite. Each finding has a state that enables resumability. Actual states written by the orchestrator: `INGESTED → TRIAGED → SCORED → APPROVED → VERDICTED` (terminal). `REJECTED` is a terminal state when approval is denied. Note: the `shieldclaw approve` CLI subcommand queries for `AWAITING_APPROVAL` state, but the orchestrator currently leaves unapproved findings in `SCORED` — no code writes `AWAITING_APPROVAL`. This mismatch means the async HITL path is currently broken and must be fixed as part of issue #48.
+All inter-stage data is persisted to SQLite. Each finding has a state that
+enables resumability. Current SQLi MVP states include `INGESTED`, `TRIAGED`,
+`DEFERRED`, `AWAITING_APPROVAL`, `APPROVED`, `REJECTED`, `POC_GENERATED`,
+`VERDICTED`, and `REFUSED`. Legacy `SCORED` rows remain compatible for approval
+and resume, but new supported SQLi findings should rest at `AWAITING_APPROVAL`
+after LLM scoring completes.
 
 ### Stage 1: Ingest
 - **Module:** `ingest/semgrep.py`
@@ -96,13 +108,14 @@ All inter-stage data is persisted to SQLite. Each finding has a state that enabl
 
 ### Stage 4: Approve
 - **Module:** `approval/gate.py`
-- **Input:** `Finding` in SCORED state
+- **Input:** supported SQLi `Finding` in `AWAITING_APPROVAL` state, plus legacy
+  `SCORED` compatibility rows
 - **Output:** Finding state → APPROVED
 - **Modes:**
-  - `SHIELDCLAW_AUTO_APPROVE=1`: auto-approve all (CI mode) — **fully implemented**
-  - Async (broken): orchestrator stops with findings in `SCORED` state; `shieldclaw approve` CLI exists but queries for `AWAITING_APPROVAL` which nothing writes — the transition `SCORED → AWAITING_APPROVAL` is missing from the orchestrator. Fix tracked in #48.
-  - Interactive (to build): pipeline blocks on stdin prompt — not yet implemented, tracked in #48
-- **Decision:** Both async and interactive modes needed. Async requires the orchestrator to write `AWAITING_APPROVAL` before stopping; interactive requires a blocking stdin loop.
+  - `SHIELDCLAW_AUTO_APPROVE=1`: auto-approve all approval-ready findings
+  - Async: orchestrator stops with supported SQLi findings in `AWAITING_APPROVAL`
+  - Interactive: pipeline blocks on stdin prompt during `shieldclaw run --interactive`
+- **Decision:** Both async and interactive modes are implemented for the CLI MVP.
 
 ### Stage 5: PoC Generate
 - **Module:** `intelligence/poc_generator.py` + `intelligence/parser.py`
