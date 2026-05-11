@@ -206,7 +206,7 @@ def test_sqli_finding_gets_true_positive_verdict(tmp_path: Path) -> None:
     counts = store.count_findings_by_state(scan_id)
 
     # All findings should be in terminal states.
-    terminal_states = {"VERDICTED", "REJECTED", "SCORED", "COMPLETE"}
+    terminal_states = {"VERDICTED", "REJECTED", "DEFERRED", "COMPLETE"}
     non_terminal = {s: n for s, n in counts.items() if s not in terminal_states and n > 0}
     assert not non_terminal, f"Non-terminal states found: {non_terminal}"
 

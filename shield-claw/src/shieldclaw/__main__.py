@@ -349,6 +349,8 @@ def _run_approve(args: Namespace) -> int:
             for row in store.get_pending_findings(args.scan_id, state):
                 if row.finding_id in seen:
                     continue
+                if row.triage_verdict != "DYNAMICALLY_VERIFIABLE":
+                    continue
                 pending.append(row)
                 seen.add(row.finding_id)
         return pending

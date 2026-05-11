@@ -1,0 +1,65 @@
+{
+  "results": [
+    {
+      "check_id": "python.flask.sqli.finding-1",
+      "path": "app.py",
+      "start": {"line": 10, "col": 1},
+      "end":   {"line": 10, "col": 50},
+      "extra": {
+        "severity": "ERROR",
+        "message": "SQL injection finding 1",
+        "metadata": {"cwe": ["CWE-89: SQL Injection"]},
+        "metavars": {}
+      }
+    },
+    {
+      "check_id": "python.flask.sqli.finding-2",
+      "path": "app.py",
+      "start": {"line": 20, "col": 1},
+      "end":   {"line": 20, "col": 50},
+      "extra": {
+        "severity": "ERROR",
+        "message": "SQL injection finding 2",
+        "metadata": {"cwe": ["CWE-89: SQL Injection"]},
+        "metavars": {}
+      }
+    },
+    {
+      "check_id": "python.flask.sqli.finding-3",
+      "path": "app.py",
+      "start": {"line": 30, "col": 1},
+      "end":   {"line": 30, "col": 50},
+      "extra": {
+        "severity": "ERROR",
+        "message": "SQL injection finding 3",
+        "metadata": {"cwe": ["CWE-89: SQL Injection"]},
+        "metavars": {}
+      }
+    },
+    {
+      "check_id": "python.flask.sqli.finding-4",
+      "path": "app.py",
+      "start": {"line": 40, "col": 1},
+      "end":   {"line": 40, "col": 50},
+      "extra": {
+        "severity": "ERROR",
+        "message": "SQL injection finding 4",
+        "metadata": {"cwe": ["CWE-89: SQL Injection"]},
+        "metavars": {}
+      }
+    },
+    {
+      "check_id": "python.flask.sqli.finding-5",
+      "path": "app.py",
+      "start": {"line": 50, "col": 1},
+      "end":   {"line": 50, "col": 50},
+      "extra": {
+        "severity": "ERROR",
+        "message": "SQL injection finding 5",
+        "metadata": {"cwe": ["CWE-89: SQL Injection"]},
+        "metavars": {}
+      }
+    }
+  ],
+  "errors": []
+}

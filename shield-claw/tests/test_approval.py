@@ -28,7 +28,7 @@ from shieldclaw.models import (
 from shieldclaw.orchestrator import Orchestrator
 from shieldclaw.persistence.store import ScanStore
 
-_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5dv.json"
+_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5sqli.json"
 _DATETIME = "2026-01-01T00:00:00+00:00"
 
 
@@ -151,22 +151,12 @@ def test_rejected_finding_is_skipped(tmp_path: Path) -> None:
     assert latest is not None
     scan_id = latest.scan_id
 
-    # At this point findings should be in SCORED state (auto-approval not enabled,
-    # but the pipeline transitions them to AWAITING_APPROVAL).
-    # Manually reject one finding.
+    # At this point findings should be awaiting approval. Manually reject one finding.
     awaiting = store.get_pending_findings(scan_id, "AWAITING_APPROVAL")
-    if not awaiting:
-        # If auto-approve env var not checked in pipeline yet, findings may be SCORED.
-        # Mark one as rejected manually to test the skip logic.
-        scored = store.get_pending_findings(scan_id, "SCORED")
-        assert scored, "Expected scored findings"
-        store.record_approval(scored[0].finding_id, "REJECTED", "test-user")
-        store.update_finding_state(scored[0].finding_id, "REJECTED")
-        rejected_id = scored[0].finding_id
-    else:
-        store.record_approval(awaiting[0].finding_id, "REJECTED", "test-user")
-        store.update_finding_state(awaiting[0].finding_id, "REJECTED")
-        rejected_id = awaiting[0].finding_id
+    assert awaiting, "Expected findings awaiting approval"
+    store.record_approval(awaiting[0].finding_id, "REJECTED", "test-user")
+    store.update_finding_state(awaiting[0].finding_id, "REJECTED")
+    rejected_id = awaiting[0].finding_id
 
     # Verify the rejected finding is in REJECTED state.
     approval = store.get_approval(rejected_id)

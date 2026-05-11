@@ -5,14 +5,14 @@ Test scenario
 1. A ``CountingProvider`` is given to the orchestrator; it tracks how many
    times ``complete()`` is called and raises ``KeyboardInterrupt`` after
    the third call.
-2. The SAST pipeline is run against a 5-finding fixture (all
-   DYNAMICALLY_VERIFIABLE).  A ``KeyboardInterrupt`` fires mid-scoring
+2. The SAST pipeline is run against a 5-finding SQLi fixture (all default
+   MVP-supported).  A ``KeyboardInterrupt`` fires mid-scoring
    (after findings 1, 2, 3 are scored).
 3. The interrupted scan's ``scan_id`` is retrieved from the store.
 4. A second orchestrator with a normal (always-succeeding) provider resumes
    with ``resume_scan_id=scan_id``.
 5. Only 2 additional ``complete()`` calls happen (findings 4 and 5).
-6. After the resume all 5 findings are in ``SCORED`` state.
+6. After the resume all 5 findings are in ``AWAITING_APPROVAL`` state.
 """
 
 from __future__ import annotations
@@ -29,7 +29,8 @@ from shieldclaw.orchestrator import Orchestrator
 from shieldclaw.persistence.store import ScanStore
 from shieldclaw.sandbox.docker_orchestrator import DockerOrchestrator
 
-_5DV_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5dv.json"
+_5SQLI_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5sqli.json"
+_MIXED_CWE_FIXTURE = Path(__file__).parent / "fixtures" / "semgrep_5dv.json"
 
 _SCORE_JSON = json.dumps(
     {
@@ -160,7 +161,7 @@ def test_resume_skips_already_scored_findings(repo_dir: Path) -> None:
     with pytest.raises(KeyboardInterrupt):
         orch1.run(
             target_dir=str(repo_dir),
-            semgrep_output=str(_5DV_FIXTURE),
+            semgrep_output=str(_5SQLI_FIXTURE),
         )
 
     # The interrupt fires on the 4th call (after incrementing the counter but
@@ -176,9 +177,11 @@ def test_resume_skips_already_scored_findings(repo_dir: Path) -> None:
     assert latest is not None, "No scan record found after interrupted run"
     scan_id = latest.scan_id
 
-    # Confirm 3 findings are SCORED and 2 are still TRIAGED.
+    # Confirm 3 findings are awaiting approval and 2 are still TRIAGED.
     counts_before = store.count_findings_by_state(scan_id)
-    assert counts_before.get("SCORED", 0) == 3, f"Expected 3 SCORED; got {counts_before}"
+    assert counts_before.get("AWAITING_APPROVAL", 0) == 3, (
+        f"Expected 3 AWAITING_APPROVAL; got {counts_before}"
+    )
     assert counts_before.get("TRIAGED", 0) == 2, f"Expected 2 TRIAGED; got {counts_before}"
 
     # Second run — resume.
@@ -187,7 +190,7 @@ def test_resume_skips_already_scored_findings(repo_dir: Path) -> None:
 
     orch2.run(
         target_dir=str(repo_dir),
-        semgrep_output=str(_5DV_FIXTURE),
+        semgrep_output=str(_5SQLI_FIXTURE),
         resume_scan_id=scan_id,
     )
 
@@ -196,17 +199,21 @@ def test_resume_skips_already_scored_findings(repo_dir: Path) -> None:
         f"Expected 2 complete() calls during resume; got {normal_provider.complete_calls}"
     )
 
-    # All 5 findings should now be SCORED.
+    # All 5 findings should now await approval.
     counts_after = store.count_findings_by_state(scan_id)
-    assert counts_after.get("SCORED", 0) == 5, f"Expected 5 SCORED after resume; got {counts_after}"
+    assert counts_after.get("AWAITING_APPROVAL", 0) == 5, (
+        f"Expected 5 AWAITING_APPROVAL after resume; got {counts_after}"
+    )
     assert counts_after.get("TRIAGED", 0) == 0, (
         f"Expected 0 TRIAGED after resume; got {counts_after}"
     )
 
-    # Scan state should be COMPLETE.
+    # Scan state should make the next operator action explicit.
     final_scan = store.load_scan(scan_id)
     assert final_scan is not None
-    assert final_scan.state == "COMPLETE", f"Expected COMPLETE; got {final_scan.state}"
+    assert final_scan.state == "AWAITING_APPROVAL", (
+        f"Expected AWAITING_APPROVAL; got {final_scan.state}"
+    )
 
 
 def test_scores_are_persisted_correctly(repo_dir: Path) -> None:
@@ -216,7 +223,7 @@ def test_scores_are_persisted_correctly(repo_dir: Path) -> None:
     orch = Orchestrator(provider_factory=lambda _: counting_provider)
     orch.run(
         target_dir=str(repo_dir),
-        semgrep_output=str(_5DV_FIXTURE),
+        semgrep_output=str(_5SQLI_FIXTURE),
     )
 
     store = ScanStore(str(repo_dir))
@@ -224,10 +231,29 @@ def test_scores_are_persisted_correctly(repo_dir: Path) -> None:
     assert latest is not None
     scan_id = latest.scan_id
     counts = store.count_findings_by_state(scan_id)
-    assert counts.get("SCORED", 0) == 5
+    assert counts.get("AWAITING_APPROVAL", 0) == 5
 
     # Verify all 5 complete() calls happened.
     assert counting_provider.complete_calls == 5
+
+
+def test_default_mvp_scores_only_sqli_findings(repo_dir: Path) -> None:
+    """Default MVP path must not score or approve non-CWE-89 findings."""
+    provider = NormalProvider()
+    orch = Orchestrator(provider_factory=lambda _: provider)
+
+    orch.run(target_dir=str(repo_dir), semgrep_output=str(_MIXED_CWE_FIXTURE))
+
+    store = ScanStore(str(repo_dir))
+    latest = store.get_latest_scan(str(repo_dir))
+    assert latest is not None
+    counts = store.count_findings_by_state(latest.scan_id)
+
+    assert provider.complete_calls == 2
+    assert counts.get("AWAITING_APPROVAL", 0) == 2
+    assert counts.get("DEFERRED", 0) == 3
+    assert counts.get("APPROVED", 0) == 0
+    assert counts.get("POC_GENERATED", 0) == 0
 
 
 def test_resume_with_unknown_scan_id_fails(repo_dir: Path) -> None:
@@ -236,7 +262,7 @@ def test_resume_with_unknown_scan_id_fails(repo_dir: Path) -> None:
     orch = Orchestrator()
     result = orch.run(
         target_dir=str(repo_dir),
-        semgrep_output=str(_5DV_FIXTURE),
+        semgrep_output=str(_5SQLI_FIXTURE),
         resume_scan_id="00000000-0000-0000-0000-000000000000",
         provider_name="ollama",
     )
@@ -250,8 +276,8 @@ def test_fresh_run_without_resume_creates_new_scan(repo_dir: Path) -> None:
     provider = NormalProvider()
     orch = Orchestrator(provider_factory=lambda _: provider)
 
-    orch.run(target_dir=str(repo_dir), semgrep_output=str(_5DV_FIXTURE))
-    orch.run(target_dir=str(repo_dir), semgrep_output=str(_5DV_FIXTURE))
+    orch.run(target_dir=str(repo_dir), semgrep_output=str(_5SQLI_FIXTURE))
+    orch.run(target_dir=str(repo_dir), semgrep_output=str(_5SQLI_FIXTURE))
 
     store = ScanStore(str(repo_dir))
     scans = store.list_scans(str(repo_dir))

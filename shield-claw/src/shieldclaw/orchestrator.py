@@ -31,7 +31,7 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import Any, Final, Literal, cast
 
 from shieldclaw.context.aggregator import ContextAggregator
 from shieldclaw.exceptions import SandboxStartError, ShieldClawError
@@ -222,6 +222,25 @@ def _build_sast_finding_reports(
     return tuple(reports)
 
 
+def _get_approval_ready_findings(store: object, scan_id: str) -> list[Any]:
+    """Return new and legacy approval-pending dynamically verifiable rows."""
+    from shieldclaw.persistence.store import FindingRow, ScanStore
+
+    assert isinstance(store, ScanStore)
+    rows: list[Any] = []
+    seen: set[str] = set()
+    for state in (FindingState.AWAITING_APPROVAL.value, FindingState.SCORED.value):
+        for row in store.get_pending_findings(scan_id, state):
+            assert isinstance(row, FindingRow)
+            if row.finding_id in seen:
+                continue
+            if row.triage_verdict != TriageVerdict.DYNAMICALLY_VERIFIABLE.value:
+                continue
+            rows.append(row)
+            seen.add(row.finding_id)
+    return rows
+
+
 def default_provider_factory(provider_name: str) -> LLMProvider:
     """Construct the default ``LLMProvider`` for a CLI name.
 
@@ -407,7 +426,9 @@ class Orchestrator:
                     _LOG.debug(
                         "Scored %s: %.2f (%s)", row.finding_id, score.score, score.attack_surface
                     )
-                store.update_finding_state(row.finding_id, "SCORED")
+                    store.update_finding_state(row.finding_id, FindingState.AWAITING_APPROVAL.value)
+                else:
+                    store.update_finding_state(row.finding_id, FindingState.DEFERRED.value)
 
             interrupted = store.get_pending_findings(scan_id, "POC_GENERATED")
             for row in interrupted:
@@ -421,7 +442,7 @@ class Orchestrator:
 
             # Auto-approve gate → PoC generate → detonate → verdict
             # Only runs when SHIELDCLAW_AUTO_APPROVE=1 is set.
-            # Without it the pipeline stops here (findings stay SCORED).
+            # Without it, supported findings rest in AWAITING_APPROVAL.
             if interactive and is_auto_approve_enabled():
                 raise ShieldClawError(
                     "--interactive cannot be combined with SHIELDCLAW_AUTO_APPROVE=1."
@@ -429,12 +450,7 @@ class Orchestrator:
 
             if interactive:
                 decided_by = get_current_user()
-                scored_dv = [
-                    r
-                    for r in store.get_pending_findings(scan_id, "SCORED")
-                    if r.triage_verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE.value
-                ]
-                for row in scored_dv:
+                for row in _get_approval_ready_findings(store, scan_id):
                     finding = _finding_from_row(row)
                     triaged = TriagedFinding(
                         finding=finding,
@@ -472,12 +488,7 @@ class Orchestrator:
                         _LOG.info("Interactive approval skipped for finding %s", row.finding_id)
             elif is_auto_approve_enabled():
                 decided_by = get_current_user()
-                scored_dv = [
-                    r
-                    for r in store.get_pending_findings(scan_id, "SCORED")
-                    if r.triage_verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE.value
-                ]
-                for row in scored_dv:
+                for row in _get_approval_ready_findings(store, scan_id):
                     _LOG.warning(
                         "AUTO-APPROVING finding %s (SHIELDCLAW_AUTO_APPROVE=1)", row.finding_id
                     )
@@ -490,7 +501,11 @@ class Orchestrator:
                     )
                     store.update_finding_state(row.finding_id, "APPROVED")
 
-            approved = store.get_pending_findings(scan_id, "APPROVED")
+            approved = [
+                row
+                for row in store.get_pending_findings(scan_id, FindingState.APPROVED.value)
+                if row.triage_verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE.value
+            ]
             if approved:
                 poc_gen = PocGenerator(provider, model_name=provider_name)
                 compose_path = _resolve_compose_path(resolved_target)
@@ -530,8 +545,12 @@ class Orchestrator:
                         )
                         store.update_finding_state(row.finding_id, "VERDICTED")
 
-            store.update_scan_state(scan_id, "COMPLETE")
-            _LOG.info("Scan %s complete", scan_id)
+            if _get_approval_ready_findings(store, scan_id):
+                store.update_scan_state(scan_id, FindingState.AWAITING_APPROVAL.value)
+                _LOG.info("Scan %s awaiting approval", scan_id)
+            else:
+                store.update_scan_state(scan_id, "COMPLETE")
+                _LOG.info("Scan %s complete", scan_id)
 
         except ShieldClawError as exc:
             pipeline_error = exc.message
