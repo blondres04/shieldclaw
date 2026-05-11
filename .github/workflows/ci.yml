@@ -88,6 +88,16 @@ jobs:
       - name: install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt -e .
 
+      - name: SQLi MVP unit gate
+        run: >-
+          pytest
+          tests/test_triage_classifier.py
+          tests/test_orchestrator_resume.py::test_default_mvp_scores_only_sqli_findings
+          tests/test_approval.py::test_interactive_rejection_skips_detonation
+          tests/test_report_builder.py::test_build_json_output_clarifies_sqli_mvp_outcomes
+          tests/test_report_builder.py::test_build_markdown_output_clarifies_sqli_mvp_outcomes
+          -q
+
       - name: pytest unit
         run: >-
           pytest
