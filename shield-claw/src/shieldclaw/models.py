@@ -46,6 +46,17 @@ from uuid import UUID
 # Sentinel value re-used across scoring and persistence layers.
 # ---------------------------------------------------------------------------
 _ATTACK_SURFACE = Literal["NETWORK", "FILE", "ENV", "OTHER"]
+MVP_SUPPORTED_CWES: frozenset[str] = frozenset({"CWE-89"})
+
+
+def normalize_cwe_id(raw_cwe: str) -> str:
+    """Return a normalized ``CWE-<number>`` key from Semgrep metadata text."""
+    return raw_cwe.split(":", 1)[0].strip().upper()
+
+
+def has_mvp_supported_cwe(cwes: tuple[str, ...]) -> bool:
+    """Return True when a finding belongs to the default SQLi-only MVP lane."""
+    return any(normalize_cwe_id(cwe) in MVP_SUPPORTED_CWES for cwe in cwes)
 
 
 class ContainerStatus(Enum):
@@ -181,7 +192,10 @@ class FindingState(Enum):
     INGESTED = "INGESTED"
     TRIAGED = "TRIAGED"
     SCORED = "SCORED"
+    DEFERRED = "DEFERRED"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
     POC_GENERATED = "POC_GENERATED"
     VERDICTED = "VERDICTED"
     REFUSED = "REFUSED"

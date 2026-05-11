@@ -12,7 +12,10 @@ Classification order (evaluated top-to-bottom; first match wins):
 
 3. **CWE lookup** - mapped CWEs are resolved conservatively:
    ``STATIC_ONLY`` wins whenever any mapped CWE requires it, otherwise the
-   mapped dynamic verdict is used.
+   mapped dynamic verdict is used. The bundled MVP map only marks ``CWE-89``
+   SQL injection as dynamically verifiable by default; other former dynamic
+   classes stay visible as deferred/static-only unless an operator supplies an
+   explicit override config for experiments.
 
 4. **Default fallback** - STATIC_ONLY with an explanatory reason.
 
@@ -35,7 +38,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from shieldclaw.models import Finding, TriagedFinding, TriageVerdict
+from shieldclaw.models import Finding, TriagedFinding, TriageVerdict, normalize_cwe_id
 
 _LOG = logging.getLogger(__name__)
 
@@ -49,6 +52,21 @@ _OUT_OF_SCOPE_PREFIXES: tuple[str, ...] = (
     "kubernetes.",
     "secrets.",
     "license.",
+)
+
+_SQLI_ONLY_MVP_DEFERRED_CWES: frozenset[str] = frozenset(
+    {
+        "CWE-22",
+        "CWE-78",
+        "CWE-79",
+        "CWE-94",
+        "CWE-352",
+        "CWE-434",
+        "CWE-502",
+        "CWE-601",
+        "CWE-611",
+        "CWE-918",
+    }
 )
 
 
@@ -162,7 +180,7 @@ def classify(finding: Finding) -> TriagedFinding:
     mapped_cwes: list[tuple[str, TriageVerdict]] = []
     unmapped_cwes: list[str] = []
     for cwe_raw in finding.cwe:
-        cwe_key = cwe_raw.split(":")[0].strip().upper()
+        cwe_key = normalize_cwe_id(cwe_raw)
         verdict = _CWE_VERDICTS.get(cwe_key)
         if verdict is None:
             unmapped_cwes.append(cwe_key)
@@ -173,6 +191,20 @@ def classify(finding: Finding) -> TriagedFinding:
         verdicts = {verdict for _, verdict in mapped_cwes}
         if TriageVerdict.STATIC_ONLY in verdicts:
             detail = ", ".join(f"{cwe}={verdict.value}" for cwe, verdict in mapped_cwes)
+            deferred = sorted(
+                cwe
+                for cwe, verdict in mapped_cwes
+                if cwe in _SQLI_ONLY_MVP_DEFERRED_CWES and verdict == TriageVerdict.STATIC_ONLY
+            )
+            if deferred:
+                return TriagedFinding(
+                    finding=finding,
+                    verdict=TriageVerdict.STATIC_ONLY,
+                    reason=(
+                        "deferred by SQLi-only MVP boundary; visible but not scored, "
+                        "approved, or detonated by default: " + ", ".join(deferred)
+                    ),
+                )
             return TriagedFinding(
                 finding=finding,
                 verdict=TriageVerdict.STATIC_ONLY,

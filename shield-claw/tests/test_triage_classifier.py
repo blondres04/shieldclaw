@@ -42,62 +42,68 @@ def _finding(
 
 
 # ---------------------------------------------------------------------------
-# Parametrised: 20 findings covering all three verdict buckets
+# Parametrised findings covering all three verdict buckets.
 # ---------------------------------------------------------------------------
 
 _CASES: list[tuple[str, Finding, TriageVerdict]] = [
-    # --- DYNAMICALLY_VERIFIABLE (10) ---
+    # --- DYNAMICALLY_VERIFIABLE (SQLi-only MVP default) ---
     (
         "sqli",
         _finding(rule_id="python.flask.sqli", cwe=("CWE-89",)),
         TriageVerdict.DYNAMICALLY_VERIFIABLE,
     ),
+    # --- Former dynamic classes, now deferred/static-only by default ---
     (
         "xss",
         _finding(rule_id="python.jinja2.xss", cwe=("CWE-79",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "cmd_injection",
         _finding(rule_id="python.os.cmd-injection", cwe=("CWE-78",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "code_injection",
         _finding(rule_id="python.eval.code-injection", cwe=("CWE-94",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "ssrf",
         _finding(rule_id="python.requests.ssrf", cwe=("CWE-918",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "path_traversal",
         _finding(rule_id="python.pathlib.traversal", cwe=("CWE-22",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "csrf",
         _finding(rule_id="python.flask.csrf", cwe=("CWE-352",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "xxe",
         _finding(rule_id="python.xml.xxe", cwe=("CWE-611",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "deserialization",
         _finding(rule_id="python.pickle.deser", cwe=("CWE-502",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
     (
         "open_redirect",
         _finding(rule_id="python.flask.redirect", cwe=("CWE-601",)),
-        TriageVerdict.DYNAMICALLY_VERIFIABLE,
+        TriageVerdict.STATIC_ONLY,
     ),
-    # --- STATIC_ONLY (5) ---
+    (
+        "file_upload",
+        _finding(rule_id="python.flask.upload", cwe=("CWE-434",)),
+        TriageVerdict.STATIC_ONLY,
+    ),
+    # --- Static-only findings ---
     (
         "weak_hash",
         _finding(rule_id="python.crypto.md5", cwe=("CWE-328",)),
@@ -169,10 +175,10 @@ def test_classifier_buckets_correctly(
     )
 
 
-def test_at_least_18_of_20_correctly_bucketed() -> None:
-    """Guard: at least 18 of the 20 parametrised cases must classify correctly."""
+def test_all_default_cases_correctly_bucketed() -> None:
+    """Guard all parametrised cases so default support stays SQLi-only."""
     correct = sum(1 for _, finding, expected in _CASES if classify(finding).verdict == expected)
-    assert correct >= 18, f"Only {correct}/20 findings classified correctly"
+    assert correct == len(_CASES), f"Only {correct}/{len(_CASES)} findings classified correctly"
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +276,26 @@ def test_custom_cwe_config_extends_default_mapping(
 
         assert classify(custom).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
         assert classify(default).verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
+    finally:
+        monkeypatch.delenv("SHIELDCLAW_CWE_VERDICTS_PATH", raising=False)
+        _reload_classifier()
+
+
+def test_custom_cwe_config_can_opt_into_deferred_class_for_experiments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Operator overrides can still mark non-MVP CWEs dynamic for experiments."""
+    config_path = tmp_path / "cwe_verdicts.toml"
+    config_path.write_text(
+        '[cwe_verdicts]\n"CWE-78" = "DYNAMICALLY_VERIFIABLE"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("SHIELDCLAW_CWE_VERDICTS_PATH", str(config_path))
+    _reload_classifier()
+    try:
+        result = classify(_finding(rule_id="python.os.cmd-injection", cwe=("CWE-78",)))
+        assert result.verdict == TriageVerdict.DYNAMICALLY_VERIFIABLE
     finally:
         monkeypatch.delenv("SHIELDCLAW_CWE_VERDICTS_PATH", raising=False)
         _reload_classifier()
