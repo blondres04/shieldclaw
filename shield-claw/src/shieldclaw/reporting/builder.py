@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from shieldclaw.models import SASTFindingReport, ScanResult
+from shieldclaw.models import SASTFindingReport, ScanResult, has_mvp_supported_cwe
 
 _LOG = logging.getLogger(__name__)
 _SARIF_SCHEMA_URI = (
@@ -55,6 +55,104 @@ def _finding_message(finding: SASTFindingReport) -> str:
     return finding.verdict_summary or finding.triage_reason or finding.rule_id
 
 
+_DETONATION_VERDICTS = frozenset({"TRUE_POSITIVE", "FALSE_POSITIVE", "INCONCLUSIVE"})
+
+
+def _mvp_support_metadata(finding: SASTFindingReport) -> dict[str, str]:
+    """Describe whether a finding is inside the default SQLi-only MVP boundary."""
+    if has_mvp_supported_cwe(finding.cwe):
+        return {
+            "mvp_support": "SUPPORTED_SQLI",
+            "mvp_support_reason": (
+                "CWE-89 SQL injection is the only default MVP-supported validation class."
+            ),
+        }
+    if finding.triage_verdict == "DYNAMICALLY_VERIFIABLE":
+        return {
+            "mvp_support": "DEFERRED_NON_MVP",
+            "mvp_support_reason": (
+                "The active CWE config treats this as dynamically verifiable, but it is "
+                "outside the default SQLi-only MVP claim."
+            ),
+        }
+    if finding.triage_verdict == "OUT_OF_SCOPE":
+        return {
+            "mvp_support": "OUT_OF_SCOPE",
+            "mvp_support_reason": "Out-of-scope findings are visible but not validated.",
+        }
+    if finding.triage_verdict == "STATIC_ONLY":
+        return {
+            "mvp_support": "STATIC_ONLY",
+            "mvp_support_reason": "Static-only findings are visible but not detonated.",
+        }
+    return {
+        "mvp_support": "UNKNOWN",
+        "mvp_support_reason": "MVP support could not be determined from the report entry.",
+    }
+
+
+def _outcome_metadata(finding: SASTFindingReport) -> dict[str, str]:
+    """Return a stable operator-facing outcome label and explanation."""
+    if finding.verdict in _DETONATION_VERDICTS:
+        summary = finding.verdict_summary or "Detonation completed."
+        if finding.verdict == "TRUE_POSITIVE":
+            summary = (
+                "TRUE_POSITIVE required exit-code evidence plus Tier-2 corroboration. " + summary
+            )
+        return {
+            "outcome": finding.verdict,
+            "outcome_kind": "DETONATION_VERDICT",
+            "outcome_summary": summary,
+        }
+
+    if finding.state == "REJECTED":
+        return {
+            "outcome": "REJECTED",
+            "outcome_kind": "NO_DETONATION",
+            "outcome_summary": (
+                "No PoC was generated or detonated because the operator rejected approval."
+            ),
+        }
+
+    if finding.state == "REFUSED" or finding.verdict == "REFUSED":
+        return {
+            "outcome": "REFUSED",
+            "outcome_kind": "NO_DETONATION",
+            "outcome_summary": finding.verdict_summary
+            or "The LLM refused to generate a PoC; no detonation verdict exists.",
+        }
+
+    if finding.state == "AWAITING_APPROVAL" or finding.state == "SCORED":
+        return {
+            "outcome": "AWAITING_APPROVAL",
+            "outcome_kind": "PENDING_OPERATOR_DECISION",
+            "outcome_summary": "Scoring is complete; operator approval is required.",
+        }
+
+    support = _mvp_support_metadata(finding)
+    if support["mvp_support"] in {"DEFERRED_NON_MVP", "STATIC_ONLY", "OUT_OF_SCOPE"}:
+        return {
+            "outcome": support["mvp_support"],
+            "outcome_kind": "NO_DETONATION",
+            "outcome_summary": support["mvp_support_reason"],
+        }
+
+    return {
+        "outcome": finding.state,
+        "outcome_kind": "PIPELINE_STATE",
+        "outcome_summary": finding.verdict_summary or finding.triage_reason or finding.state,
+    }
+
+
+def _finding_report_dict(finding: SASTFindingReport) -> dict[str, Any]:
+    """Serialize a finding and attach derived SQLi MVP outcome metadata."""
+    payload = _jsonable(finding)
+    assert isinstance(payload, dict)
+    payload.update(_mvp_support_metadata(finding))
+    payload.update(_outcome_metadata(finding))
+    return payload
+
+
 class ReportBuilder:
     """Turns scan outcomes into stable operator-facing report formats."""
 
@@ -64,6 +162,8 @@ class ReportBuilder:
         if normalized == "json":
             payload = _jsonable(result)
             assert isinstance(payload, dict)
+            if result.findings is not None:
+                payload["findings"] = [_finding_report_dict(finding) for finding in result.findings]
             return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         if normalized == "sarif":
             return self._build_sarif(result)
@@ -131,6 +231,8 @@ class ReportBuilder:
                         "verdict_summary": finding.verdict_summary,
                         "cwe": list(finding.cwe),
                         "observer_warnings": _jsonable(finding.observer_warnings),
+                        **_mvp_support_metadata(finding),
+                        **_outcome_metadata(finding),
                     },
                 }
             )
@@ -180,12 +282,14 @@ class ReportBuilder:
 
         grouped: dict[str, list[SASTFindingReport]] = {}
         for finding in findings:
-            group = finding.verdict or finding.state
+            group = _outcome_metadata(finding)["outcome"]
             grouped.setdefault(group, []).append(finding)
 
         for group_name in sorted(grouped):
             lines.extend(["", f"## {group_name}", ""])
             for finding in grouped[group_name]:
+                support = _mvp_support_metadata(finding)
+                outcome = _outcome_metadata(finding)
                 lines.extend(
                     [
                         f"### {finding.rule_id}",
@@ -202,6 +306,11 @@ class ReportBuilder:
                             else "- verdict_confidence: none"
                         ),
                         f"- verdict_summary: {finding.verdict_summary or 'none'}",
+                        f"- mvp_support: {support['mvp_support']}",
+                        f"- mvp_support_reason: {support['mvp_support_reason']}",
+                        f"- outcome_kind: {outcome['outcome_kind']}",
+                        f"- outcome: {outcome['outcome']}",
+                        f"- outcome_summary: {outcome['outcome_summary']}",
                     ]
                 )
                 if finding.observer_warnings:

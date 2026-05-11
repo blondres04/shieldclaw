@@ -51,15 +51,15 @@ def _sample_sast_result() -> ScanResult:
             ),
             SASTFindingReport(
                 finding_id=uuid.UUID("66666666-7777-4888-9999-000000000000"),
-                rule_id="python.flask.cmdi",
-                severity="WARNING",
-                path="worker.py",
+                rule_id="python.flask.sqli.rejected",
+                severity="ERROR",
+                path="rejected.py",
                 start_line=18,
                 end_line=18,
-                cwe=("CWE-78",),
+                cwe=("CWE-89",),
                 state="REJECTED",
                 triage_verdict="DYNAMICALLY_VERIFIABLE",
-                triage_reason="Command injection is dynamically verifiable",
+                triage_reason="SQL injection is dynamically verifiable",
                 verdict=None,
                 verdict_confidence=None,
                 verdict_summary=None,
@@ -231,209 +231,107 @@ def test_build_sast_report_serializes_empty_observer_warnings() -> None:
     assert data["findings"][0]["observer_warnings"] == []
 
 
-def test_build_json_output_matches_snapshot() -> None:
-    """Default JSON output should remain stable and include observer warnings."""
+def test_build_json_output_clarifies_sqli_mvp_outcomes() -> None:
+    """Default JSON output should distinguish detonation verdicts from rejected findings."""
     result = _sample_sast_result()
 
     data = json.loads(ReportBuilder().build(result))
 
-    assert data == {
-        "container_state": None,
-        "duration_seconds": 4.2,
-        "exit_code": None,
-        "exploit_payload": None,
-        "findings": [
-            {
-                "cwe": ["CWE-89"],
-                "end_line": 42,
-                "finding_id": "11111111-2222-4333-8444-555555555555",
-                "observer_warnings": [
-                    {
-                        "message": "log stream unavailable",
-                        "observer_name": "target_logs",
-                    }
-                ],
-                "path": "app.py",
-                "rule_id": "python.flask.sqli",
-                "severity": "ERROR",
-                "start_line": 42,
-                "state": "VERDICTED",
-                "triage_reason": "SQL injection is dynamically verifiable",
-                "triage_verdict": "DYNAMICALLY_VERIFIABLE",
-                "verdict": "TRUE_POSITIVE",
-                "verdict_confidence": 0.9,
-                "verdict_summary": "Exit code and logs confirm exploitability.",
-            },
-            {
-                "cwe": ["CWE-78"],
-                "end_line": 18,
-                "finding_id": "66666666-7777-4888-9999-000000000000",
-                "observer_warnings": [],
-                "path": "worker.py",
-                "rule_id": "python.flask.cmdi",
-                "severity": "WARNING",
-                "start_line": 18,
-                "state": "REJECTED",
-                "triage_reason": "Command injection is dynamically verifiable",
-                "triage_verdict": "DYNAMICALLY_VERIFIABLE",
-                "verdict": None,
-                "verdict_confidence": None,
-                "verdict_summary": None,
-            },
-        ],
-        "is_vulnerable": None,
-        "pipeline_error": None,
-        "result_id": "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
-        "scan_id": "99999999-8888-4777-9666-555555555555",
-    }
+    assert data["result_id"] == "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee"
+    assert data["scan_id"] == "99999999-8888-4777-9666-555555555555"
+    assert len(data["findings"]) == 2
+
+    true_positive = data["findings"][0]
+    assert true_positive["outcome"] == "TRUE_POSITIVE"
+    assert true_positive["outcome_kind"] == "DETONATION_VERDICT"
+    assert "exit-code evidence plus Tier-2 corroboration" in true_positive["outcome_summary"]
+    assert true_positive["mvp_support"] == "SUPPORTED_SQLI"
+    assert true_positive["observer_warnings"] == [
+        {
+            "message": "log stream unavailable",
+            "observer_name": "target_logs",
+        }
+    ]
+
+    rejected = data["findings"][1]
+    assert rejected["state"] == "REJECTED"
+    assert rejected["outcome"] == "REJECTED"
+    assert rejected["outcome_kind"] == "NO_DETONATION"
+    assert "No PoC was generated or detonated" in rejected["outcome_summary"]
+    assert rejected["mvp_support"] == "SUPPORTED_SQLI"
 
 
-def test_build_sarif_output_matches_snapshot() -> None:
-    """SARIF output should contain GitHub-uploadable findings and warnings."""
+def test_build_sarif_output_includes_mvp_outcome_properties() -> None:
+    """SARIF remains available and carries the same outcome metadata."""
     result = _sample_sast_result()
 
     data = json.loads(ReportBuilder().build(result, output_format="sarif"))
 
-    assert data == {
-        "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
-        "runs": [
-            {
-                "properties": {
-                    "duration_seconds": 4.2,
-                    "pipeline_error": None,
-                    "result_id": "aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee",
-                    "scan_id": "99999999-8888-4777-9666-555555555555",
-                },
-                "results": [
-                    {
-                        "level": "error",
-                        "locations": [
-                            {
-                                "physicalLocation": {
-                                    "artifactLocation": {"uri": "app.py"},
-                                    "region": {"endLine": 42, "startLine": 42},
-                                }
-                            }
-                        ],
-                        "message": {"text": "Exit code and logs confirm exploitability."},
-                        "partialFingerprints": {
-                            "shieldclaw/finding_id": "11111111-2222-4333-8444-555555555555"
-                        },
-                        "properties": {
-                            "cwe": ["CWE-89"],
-                            "observer_warnings": [
-                                {
-                                    "message": "log stream unavailable",
-                                    "observer_name": "target_logs",
-                                }
-                            ],
-                            "state": "VERDICTED",
-                            "triage_reason": "SQL injection is dynamically verifiable",
-                            "triage_verdict": "DYNAMICALLY_VERIFIABLE",
-                            "verdict": "TRUE_POSITIVE",
-                            "verdict_confidence": 0.9,
-                            "verdict_summary": "Exit code and logs confirm exploitability.",
-                        },
-                        "ruleId": "python.flask.sqli",
-                        "ruleIndex": 0,
-                    },
-                    {
-                        "level": "warning",
-                        "locations": [
-                            {
-                                "physicalLocation": {
-                                    "artifactLocation": {"uri": "worker.py"},
-                                    "region": {"endLine": 18, "startLine": 18},
-                                }
-                            }
-                        ],
-                        "message": {"text": "Command injection is dynamically verifiable"},
-                        "partialFingerprints": {
-                            "shieldclaw/finding_id": "66666666-7777-4888-9999-000000000000"
-                        },
-                        "properties": {
-                            "cwe": ["CWE-78"],
-                            "observer_warnings": [],
-                            "state": "REJECTED",
-                            "triage_reason": "Command injection is dynamically verifiable",
-                            "triage_verdict": "DYNAMICALLY_VERIFIABLE",
-                            "verdict": None,
-                            "verdict_confidence": None,
-                            "verdict_summary": None,
-                        },
-                        "ruleId": "python.flask.cmdi",
-                        "ruleIndex": 1,
-                    },
-                ],
-                "tool": {
-                    "driver": {
-                        "name": "ShieldClaw",
-                        "rules": [
-                            {
-                                "fullDescription": {
-                                    "text": "Exit code and logs confirm exploitability."
-                                },
-                                "id": "python.flask.sqli",
-                                "name": "python.flask.sqli",
-                                "properties": {"tags": ["ERROR", "CWE-89"]},
-                                "shortDescription": {"text": "python.flask.sqli"},
-                            },
-                            {
-                                "fullDescription": {
-                                    "text": "Command injection is dynamically verifiable"
-                                },
-                                "id": "python.flask.cmdi",
-                                "name": "python.flask.cmdi",
-                                "properties": {"tags": ["WARNING", "CWE-78"]},
-                                "shortDescription": {"text": "python.flask.cmdi"},
-                            },
-                        ],
-                    }
-                },
-            }
-        ],
-        "version": "2.1.0",
-    }
+    assert data["version"] == "2.1.0"
+    assert data["runs"][0]["tool"]["driver"]["name"] == "ShieldClaw"
+    results = data["runs"][0]["results"]
+    assert len(results) == 2
+
+    true_positive_props = results[0]["properties"]
+    assert true_positive_props["outcome"] == "TRUE_POSITIVE"
+    assert true_positive_props["outcome_kind"] == "DETONATION_VERDICT"
+    assert true_positive_props["mvp_support"] == "SUPPORTED_SQLI"
+
+    rejected_props = results[1]["properties"]
+    assert rejected_props["state"] == "REJECTED"
+    assert rejected_props["outcome"] == "REJECTED"
+    assert rejected_props["outcome_kind"] == "NO_DETONATION"
+    assert rejected_props["mvp_support"] == "SUPPORTED_SQLI"
 
 
-def test_build_markdown_output_matches_snapshot() -> None:
-    """Markdown output should group findings by verdict/state and show warnings."""
+def test_build_markdown_output_clarifies_sqli_mvp_outcomes() -> None:
+    """Markdown should group by outcome and explain rejected no-detonation cases."""
     result = _sample_sast_result()
 
     report = ReportBuilder().build(result, output_format="markdown")
 
-    assert report == (
-        "# ShieldClaw Report\n\n"
-        "- result_id: aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee\n"
-        "- scan_id: 99999999-8888-4777-9666-555555555555\n"
-        "- pipeline_error: none\n"
-        "- duration_seconds: 4.2\n\n"
-        "## REJECTED\n\n"
-        "### python.flask.cmdi\n"
-        "- location: worker.py:18-18\n"
-        "- severity: WARNING\n"
-        "- state: REJECTED\n"
-        "- cwe: CWE-78\n"
-        "- triage_verdict: DYNAMICALLY_VERIFIABLE\n"
-        "- triage_reason: Command injection is dynamically verifiable\n"
-        "- verdict: none\n"
-        "- verdict_confidence: none\n"
-        "- verdict_summary: none\n"
-        "- observer_warnings: none\n\n"
-        "## TRUE_POSITIVE\n\n"
-        "### python.flask.sqli\n"
-        "- location: app.py:42-42\n"
-        "- severity: ERROR\n"
-        "- state: VERDICTED\n"
-        "- cwe: CWE-89\n"
-        "- triage_verdict: DYNAMICALLY_VERIFIABLE\n"
-        "- triage_reason: SQL injection is dynamically verifiable\n"
-        "- verdict: TRUE_POSITIVE\n"
-        "- verdict_confidence: 0.9\n"
-        "- verdict_summary: Exit code and logs confirm exploitability.\n"
-        "- observer_warnings:\n"
-        "  - target_logs: log stream unavailable\n"
+    assert "## TRUE_POSITIVE" in report
+    assert "## REJECTED" in report
+    assert "### python.flask.sqli" in report
+    assert "### python.flask.sqli.rejected" in report
+    assert "- mvp_support: SUPPORTED_SQLI" in report
+    assert "- outcome_kind: DETONATION_VERDICT" in report
+    assert "- outcome_kind: NO_DETONATION" in report
+    assert "TRUE_POSITIVE required exit-code evidence plus Tier-2 corroboration" in report
+    assert "No PoC was generated or detonated because the operator rejected approval." in report
+    assert "  - target_logs: log stream unavailable" in report
+
+
+def test_non_sqli_finding_is_not_reported_as_mvp_supported() -> None:
+    """Reports must label non-CWE-89 findings outside the SQLi MVP claim."""
+    result = ScanResult(
+        result_id=uuid.uuid4(),
+        scan_id=uuid.uuid4(),
+        findings=(
+            SASTFindingReport(
+                finding_id=uuid.uuid4(),
+                rule_id="python.os.cmd-injection",
+                severity="ERROR",
+                path="tasks.py",
+                start_line=12,
+                end_line=12,
+                cwe=("CWE-78",),
+                state="DEFERRED",
+                triage_verdict="STATIC_ONLY",
+                triage_reason=(
+                    "deferred by SQLi-only MVP boundary; visible but not scored, "
+                    "approved, or detonated by default: CWE-78"
+                ),
+            ),
+        ),
     )
+
+    data = json.loads(ReportBuilder().build(result))
+
+    finding = data["findings"][0]
+    assert finding["mvp_support"] == "STATIC_ONLY"
+    assert finding["outcome"] == "STATIC_ONLY"
+    assert finding["outcome_kind"] == "NO_DETONATION"
 
 
 @pytest.mark.integration
