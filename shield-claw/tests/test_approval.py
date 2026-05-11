@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from shieldclaw.__main__ import main
 from shieldclaw.approval.gate import (
     ApprovalContext,
     format_approval_context,
@@ -165,6 +166,47 @@ def test_rejected_finding_is_skipped(tmp_path: Path) -> None:
 
     counts = store.count_findings_by_state(scan_id)
     assert counts.get("REJECTED", 0) >= 1
+
+
+def test_approve_command_accepts_legacy_scored_rows(tmp_path: Path) -> None:
+    """The approval CLI must keep pre-MVP SCORED rows approval-compatible."""
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  web:\n    image: nginx:alpine\n",
+        encoding="utf-8",
+    )
+    fixture = tmp_path / "semgrep-one.json"
+    _write_single_finding_fixture(fixture)
+
+    from shieldclaw.ingest.semgrep import parse_semgrep_json
+
+    store = ScanStore(str(tmp_path))
+    scan_id = "11111111-2222-4333-8444-555555555555"
+    findings = parse_semgrep_json(fixture)
+    finding = findings[0]
+    store.create_scan(scan_id, str(tmp_path), str(fixture))
+    store.record_findings(scan_id, findings)
+    store.set_triage(
+        str(finding.finding_id),
+        TriageVerdict.DYNAMICALLY_VERIFIABLE.value,
+        "legacy scored row",
+    )
+    store.update_finding_state(str(finding.finding_id), "SCORED")
+
+    rc = main(
+        [
+            "approve",
+            scan_id,
+            str(finding.finding_id),
+            "--target",
+            str(tmp_path),
+            "--note",
+            "legacy approval compatibility",
+        ]
+    )
+
+    assert rc == 0
+    approved = store.get_pending_findings(scan_id, "APPROVED")
+    assert [row.finding_id for row in approved] == [str(finding.finding_id)]
 
 
 # ---------------------------------------------------------------------------
